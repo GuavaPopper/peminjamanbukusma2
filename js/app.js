@@ -44,7 +44,10 @@
     desk: '<rect x="3" y="4" width="18" height="12" rx="1"/><path d="M8 20h8M12 16v4"/>',
     star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/>',
     calendar: '<rect x="3" y="5" width="18" height="16" rx="1"/><path d="M16 3v4M8 3v4M3 10h18"/>',
-    trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>'
+    trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
+    scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/>',
+    qr: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM21 14v.01M14 21h.01M17 21h4v-4"/>',
+    printer: '<path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="1"/><path d="M6 14h12v7H6z"/>'
   };
   const ic = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
 
@@ -62,6 +65,29 @@
     return `<div class="cover" style="${style}" role="img" aria-label="Sampul ${t}"><div class="ci l-${c.layout}">${inner}</div></div>`;
   }
   const thumb = (b, cls = 'thumb') => `<span class="${cls}">${cover(b)}</span>`;
+
+  /* ── Label QR tiap eksemplar buku ────────────────────────── */
+  // Isi QR = tautan ke halaman buku, jadi kamera HP biasa pun langsung membukanya.
+  const SITE = location.href.split('#')[0];
+  const bookCode = (b, copy = 1) => `BK-${String(BOOKS.indexOf(b) + 1).padStart(3, '0')}-${String(copy).padStart(2, '0')}`;
+  const bookUrl = (b, copy = 1) => `${SITE}#/buku/${b.id}/${copy}`;
+  function qrSVG(text) {
+    if (typeof qrcode !== 'function') return '<p class="qr-missing">QR gagal dimuat</p>';
+    const q = qrcode(0, 'M'); q.addData(text); q.make();
+    const n = q.getModuleCount(); let d = '';
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${c} ${r}h1v1h-1z`;
+    return `<svg class="qr-svg" viewBox="-2 -2 ${n + 4} ${n + 4}" shape-rendering="crispEdges" role="img" aria-label="Kode QR"><rect x="-2" y="-2" width="${n + 4}" height="${n + 4}" fill="#fff"/><path d="${d}" fill="#111"/></svg>`;
+  }
+  // Terima isi QR (URL situs), kode label (BK-001-02), atau id buku
+  function parseBookQR(text) {
+    const t = String(text).trim();
+    let m = t.match(/#\/buku\/([\w-]+)(?:\/(\d+))?/);
+    if (m && bookById(m[1])) return { book: bookById(m[1]), copy: +(m[2] || 1) };
+    m = t.toUpperCase().match(/^BK-?(\d{1,3})(?:-(\d{1,2}))?$/);
+    if (m && BOOKS[+m[1] - 1]) return { book: BOOKS[+m[1] - 1], copy: +(m[2] || 1) };
+    const b = bookById(t.toLowerCase());
+    return b ? { book: b, copy: 1 } : null;
+  }
 
   /* ── State (disimpan di localStorage bila tersedia) ──────── */
   const KEY = 'pinjam-proto-v1';
@@ -207,6 +233,7 @@
   }
   function closeModal() {
     if (!modal.classList.contains('is-open')) return;
+    stopScanner();
     modal.classList.remove('is-open');
     modal.setAttribute('aria-hidden', 'true');
     lastFocus && lastFocus.focus && lastFocus.focus({ preventScroll: true });
@@ -407,12 +434,14 @@
     return `<div class="pop-wrap"><button class="btn btn-outline" data-pop="save-pop">Disimpan${ic('chev').replace('<svg', '<svg class="chev"')}</button>
       <div class="pop" id="save-pop"><a class="menu-item" href="#/pustaka/disimpan">${ic('book')}Buka daftar simpanan</a><button class="menu-item danger" data-action="unsave" data-id="${b.id}">${ic('trash')}Hapus dari simpanan</button></div></div>`;
   }
-  function viewDetail({ id }) {
+  function viewDetail({ id, copy }) {
     const b = bookById(id);
     if (!b) return `<div class="container" style="padding:80px 24px;text-align:center"><p class="serif h-sec">Buku tidak ditemukan</p><a class="btn btn-black" style="margin-top:16px" href="#/jelajah">Kembali ke katalog</a></div>`;
     const st = stockOf(b);
     const related = BOOKS.filter((x) => x.category === b.category && x.id !== b.id).slice(0, 5);
+    const cp = Math.min(Math.max(+copy || 1, 1), b.total);
     return `<div class="detail-bg"><div class="container detail">
+      ${copy ? `<p class="scanned" data-s>${ic('qr')}Dipindai dari label <b>${bookCode(b, cp)}</b> · eksemplar ${cp} dari ${b.total}</p>` : ''}
       <div class="detail-top">
         <div class="detail-cover" data-s>${cover(b)}</div>
         <div>
@@ -446,6 +475,12 @@
         <div class="shelf-badge">${ic('pin')}Rak ${esc(b.shelf)}</div>
         <p>${b.category === 'Pelajaran' ? 'Ruang buku paket, sebelah meja sirkulasi' : 'Lantai 1, dekat area baca'}</p>
         <div class="mini-row">${related.map((r) => `<a href="#/buku/${r.id}" aria-label="${esc(r.title)}">${cover(r)}</a>`).join('')}</div>
+      </section>
+      <section class="qr-card" data-s>
+        <div class="qr">${qrSVG(bookUrl(b, cp))}</div>
+        <div class="qr-info"><small>Label QR · eksemplar ${cp} dari ${b.total}</small><b>${bookCode(b, cp)}</b>
+          <p>Tertempel di sampul belakang buku. Pindai dengan kamera HP untuk membuka halaman ini, atau dipindai petugas saat meminjam dan mengembalikan.</p>
+          <a class="btn btn-ghost" href="#/label">${ic('printer')}Cetak label</a></div>
       </section>
     </div></div>`;
   }
@@ -555,7 +590,7 @@
     const late = ret.filter((e) => e.due < today0()).length;
     const avail = BOOKS.reduce((n, b) => n + stockOf(b), 0);
     return `<div class="container desk">
-      <header class="desk-head" data-s><div><h1 class="serif">Meja sirkulasi</h1><p>${fmtLong(Date.now())} · Petugas: Bu Ratna</p></div><span class="chip">${ic('desk').replace('<svg', '<svg width="12" height="12"')}Mode petugas</span></header>
+      <header class="desk-head" data-s><div><h1 class="serif">Meja sirkulasi</h1><p>${fmtLong(Date.now())} · Petugas: Bu Ratna</p></div><div class="desk-tools"><a class="btn btn-ghost" href="#/label">${ic('printer')}Label QR</a><button class="btn btn-black" data-action="scan" data-mode="desk">${ic('scan')}Pindai buku</button></div></header>
       <div class="stats" data-s>
         <div class="stat"><b>${pick.length}</b><span>Siap diambil</span></div>
         <div class="stat"><b>${ret.length}</b><span>Sedang dipinjam</span></div>
@@ -571,19 +606,128 @@
     </div>`;
   }
 
+  /* ── Tampilan: Cetak label QR ────────────────────────────── */
+  let labelCat = 'Semua';
+  function labelsHTML() {
+    return BOOKS.filter((b) => labelCat === 'Semua' || b.category === labelCat).map((b) =>
+      Array.from({ length: b.total }, (_, i) => `<div class="label"><div class="qr">${qrSVG(bookUrl(b, i + 1))}</div>
+        <div class="label-t"><b>${esc(b.title)}</b><span>${esc(b.author)}</span><code>${bookCode(b, i + 1)}</code><em>Rak ${esc(b.shelf)}</em></div></div>`).join('')
+    ).join('');
+  }
+  function viewLabels() {
+    const count = BOOKS.filter((b) => labelCat === 'Semua' || b.category === labelCat).reduce((n, b) => n + b.total, 0);
+    return `<div class="container labels-page">
+      <header class="desk-head no-print" data-s><div><h1 class="serif">Label QR buku</h1><p>Satu label per eksemplar · tempel di sampul belakang · <span id="label-count">${count}</span> label</p></div>
+        <button class="btn btn-black" data-action="print">${ic('printer')}Cetak</button></header>
+      <div class="filters no-print" style="justify-content:flex-start" data-s>${CATS.map((c) => `<button class="filter" data-action="label-filter" data-cat="${c}" aria-pressed="${c === labelCat}">${c}</button>`).join('')}</div>
+      <div class="label-grid" id="label-grid" data-s>${labelsHTML()}</div>
+    </div>`;
+  }
+
+  /* ── Pemindai QR (kamera) ────────────────────────────────── */
+  let scanner = null;
+  function loadJsQR() {
+    if (window.jsQR) return Promise.resolve();
+    return new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+      s.onload = res; s.onerror = () => rej(new Error('jsqr'));
+      document.head.appendChild(s);
+    });
+  }
+  function scanStep(mode) {
+    return `<div class="m-step">
+      <h3 class="serif m-title"><em>Pindai</em> label QR buku</h3>
+      <p class="m-body">${mode === 'desk' ? 'Arahkan kamera ke label di sampul belakang buku yang diambil atau dikembalikan.' : 'Arahkan kamera ke label di sampul belakang buku.'}</p>
+      <div class="scan-box" id="scan-box"><video id="scan-video" playsinline muted></video><span class="scan-frame"></span><span class="scan-line"></span><p class="scan-msg" id="scan-msg">Menyalakan kamera…</p></div>
+      <form class="scan-manual" data-scan-form data-mode="${mode}"><input id="scan-input" placeholder="atau ketik kode, mis. BK-001-01" autocomplete="off" aria-label="Kode label buku" /><button class="btn btn-black btn-sm" type="submit">Cari</button></form>
+    </div>`;
+  }
+  function openScanner(mode) {
+    openModal(scanStep(mode));
+    startCamera(mode);
+  }
+  async function startCamera(mode) {
+    const msg = $('#scan-msg'), video = $('#scan-video'), box = $('#scan-box');
+    const fail = (t) => { if (!msg || !msg.isConnected) return; msg.textContent = t; msg.classList.add('is-err'); box.classList.add('no-cam'); };
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return fail('Kamera tidak tersedia di sini. Ketik kode label di bawah.');
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      await loadJsQR();
+    } catch (err) {
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      return fail(err && err.name === 'NotAllowedError' ? 'Izin kamera ditolak. Ketik kode label di bawah.' : 'Kamera tidak bisa dibuka. Ketik kode label di bawah.');
+    }
+    // Modal sudah ditutup sebelum kamera siap
+    if (!video.isConnected || !modal.classList.contains('is-open')) { stream.getTracks().forEach((t) => t.stop()); return; }
+    video.srcObject = stream;
+    try { await video.play(); } catch { /* autoplay diblokir */ }
+    msg.textContent = '';
+    box.classList.add('is-live');
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    let last = 0;
+    scanner = { stream, raf: 0 };
+    const tick = (now) => {
+      if (!scanner) return;
+      scanner.raf = requestAnimationFrame(tick);
+      if (now - last < 120 || video.readyState < 2 || !video.videoWidth) return;
+      last = now;
+      const w = 480, h = Math.round((video.videoHeight / video.videoWidth) * w);
+      canvas.width = w; canvas.height = h;
+      ctx.drawImage(video, 0, 0, w, h);
+      const res = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
+      if (res && res.data) handleScan(res.data, mode);
+    };
+    scanner.raf = requestAnimationFrame(tick);
+  }
+  function stopScanner() {
+    if (!scanner) return;
+    cancelAnimationFrame(scanner.raf);
+    scanner.stream.getTracks().forEach((t) => t.stop());
+    scanner = null;
+  }
+  function handleScan(text, mode) {
+    const hit = parseBookQR(text);
+    if (!hit) {
+      const msg = $('#scan-msg');
+      if (msg) { msg.textContent = 'Ini bukan label buku perpustakaan.'; msg.classList.add('is-err'); }
+      return;
+    }
+    stopScanner();
+    if (navigator.vibrate) navigator.vibrate(30);
+    if (mode !== 'desk') { closeModal(); location.hash = `#/buku/${hit.book.id}/${hit.copy}`; return; }
+    const b = hit.book;
+    const entries = deskEntries().filter((e) => e.bookId === b.id);
+    morph(modalBox, modalInner, () => {
+      modalInner.innerHTML = `<div class="m-step">
+        <div class="scan-hit">${thumb(b, 'thumb-md')}<div><small>${bookCode(b, hit.copy)} · eksemplar ${hit.copy}</small><h4 class="serif">${esc(b.title)}</h4><p class="row-a">${esc(b.author)}</p></div></div>
+        ${entries.length ? `<div class="list-box">${entries.map((e) => {
+          const s = e.me ? ME : STUDENTS[e.student], pick = e.type === 'pickup';
+          const late = !pick && e.due < today0();
+          return `<div class="desk-row"><span class="avatar lg" style="--av:${s.av}">${initials(s.name)}</span>
+            <div class="grow"><p class="who">${esc(s.name)}<span>${esc(s.cls)}</span></p><p class="row-a">${pick ? `Mengambil · ${e.days} hari` : `Mengembalikan · jatuh tempo ${fmtShort(e.due)}`}${late ? ' · <b class="late-txt">terlambat</b>' : ''}</p></div>
+            <button class="btn ${pick ? 'btn-green' : 'btn-black'} btn-sm" data-action="desk-confirm" data-id="${e.id}" data-type="${e.type}">${pick ? 'Serahkan' : 'Terima'}</button></div>`;
+        }).join('')}</div>` : `<p class="m-body">Tidak ada yang sedang meminjam atau akan mengambil buku ini.<br>Stok tersedia: ${stockOf(b)} dari ${b.total}.</p>`}
+        <div class="m-actions"><button class="btn btn-outline btn-sm" data-action="scan-again" data-mode="desk">${ic('scan')}Pindai lagi</button></div></div>`;
+    });
+  }
+
   /* ── Router + transisi halaman ───────────────────────────── */
   const view = $('#view');
   let current = null, navToken = 0;
   function parse() {
     const parts = (location.hash.replace(/^#\/?/, '') || '').split('/').filter(Boolean);
     if (!parts.length) return { name: 'home' };
-    if (parts[0] === 'buku') return { name: 'detail', id: parts[1] };
+    if (parts[0] === 'buku') return { name: 'detail', id: parts[1], copy: parts[2] };
+    if (parts[0] === 'label') return { name: 'labels' };
     if (parts[0] === 'jelajah') return { name: 'explore' };
     if (parts[0] === 'pustaka') return { name: 'library', tab: parts[1] };
     if (parts[0] === 'petugas') return { name: 'desk' };
     return { name: 'home' };
   }
-  const VIEWS = { home: viewHome, detail: viewDetail, explore: viewExplore, library: viewLibrary, desk: viewDesk };
+  const VIEWS = { home: viewHome, detail: viewDetail, explore: viewExplore, library: viewLibrary, desk: viewDesk, labels: viewLabels };
 
   function afterRender() {
     $$('.ring .fg', view).forEach((c) => requestAnimationFrame(() => requestAnimationFrame(() => { c.style.strokeDashoffset = c.dataset.offset; })));
@@ -717,25 +861,62 @@
       box.innerHTML = shelvesHTML();
       enter(box);
     },
-    async handover(el) {
-      const id = el.dataset.id;
-      const row = el.closest('.desk-row');
-      el.setAttribute('aria-disabled', 'true');
-      await collapse(row);
-      if (id.startsWith('me-')) {
-        const l = state.loans.find((x) => 'me-' + x.id === id);
-        const d = l.days || 14; l.status = 'dipinjam'; l.start = today0(); l.due = today0() + d * DAY;
-      } else {
-        const e = state.desk.find((x) => x.id === id);
-        e.type = 'return'; e.due = today0() + e.days * DAY;
-      }
-      save(); rerenderSoft();
-      showBar(barMsg('Buku diserahkan. Status berubah menjadi <b>dipinjam</b>.'));
+    handover(el) { el.setAttribute('aria-disabled', 'true'); doHandover(el.dataset.id); },
+    scan(el) { openScanner(el.dataset.mode || 'student'); },
+    'scan-again'(el) {
+      const mode = el.dataset.mode || 'student';
+      morph(modalBox, modalInner, () => { modalInner.innerHTML = scanStep(mode); });
+      startCamera(mode);
+    },
+    'desk-confirm'(el) {
+      closeModal();
+      if (current.name !== 'desk') location.hash = '#/petugas';
+      // Tunggu modal tertutup supaya baris yang hilang terlihat beranimasi
+      setTimeout(() => (el.dataset.type === 'pickup' ? doHandover : doReturn)(el.dataset.id), 180);
+    },
+    print() { window.print(); },
+    'label-filter'(el) {
+      labelCat = el.dataset.cat;
+      $$('.filter', view).forEach((f) => f.setAttribute('aria-pressed', String(f.dataset.cat === labelCat)));
+      const grid = $('#label-grid');
+      grid.innerHTML = labelsHTML();
+      $('#label-count').textContent = grid.children.length;
+      enter(grid);
     },
     info(el) { closePops(); showBar(barMsg(el.dataset.msg), 4500); },
     reset() { state = seed(); save(); closePops(); $('#bell').classList.remove('is-read'); rerenderSoft(); showBar(barMsg('Data demo dikembalikan ke awal.'), 2500); },
     'bar-close': hideBar
   };
+
+  async function doHandover(id) {
+    const row = $(`[data-entry="${id}"]`);
+    if (row) await collapse(row);
+    if (id.startsWith('me-')) {
+      const l = state.loans.find((x) => 'me-' + x.id === id);
+      const d = l.days || 14; l.status = 'dipinjam'; l.start = today0(); l.due = today0() + d * DAY;
+    } else {
+      const e = state.desk.find((x) => x.id === id);
+      e.type = 'return'; e.due = today0() + e.days * DAY;
+    }
+    save(); rerenderSoft();
+    showBar(barMsg('Buku diserahkan. Status berubah menjadi <b>dipinjam</b>.'));
+  }
+  async function doReturn(id) {
+    const row = $(`[data-entry="${id}"]`);
+    if (row) await collapse(row);
+    if (id.startsWith('me-')) {
+      const l = state.loans.find((x) => 'me-' + x.id === id);
+      state.loans = state.loans.filter((x) => x !== l);
+      state.history.unshift({ bookId: l.bookId, start: l.start, returned: today0() });
+      state.stock[l.bookId] = stockOf(bookById(l.bookId)) + 1;
+    } else {
+      const e = state.desk.find((x) => x.id === id);
+      state.desk = state.desk.filter((x) => x !== e);
+      state.stock[e.bookId] = stockOf(bookById(e.bookId)) + 1;
+    }
+    save(); rerenderSoft();
+    showBar(barMsg('Buku diterima kembali dan stok diperbarui.'));
+  }
 
   function replacePrimary(b) {
     const slot = $('#primary');
@@ -753,22 +934,9 @@
   function startHold(btn) {
     btn.classList.add('is-holding');
     btn.addEventListener('pointerleave', () => endHold(btn), { once: true });
-    holdTimer = setTimeout(async () => {
+    holdTimer = setTimeout(() => {
       btn.classList.remove('is-holding');
-      const id = btn.dataset.id, row = btn.closest('.desk-row');
-      await collapse(row);
-      if (id.startsWith('me-')) {
-        const l = state.loans.find((x) => 'me-' + x.id === id);
-        state.loans = state.loans.filter((x) => x !== l);
-        state.history.unshift({ bookId: l.bookId, start: l.start, returned: today0() });
-        state.stock[l.bookId] = stockOf(bookById(l.bookId)) + 1;
-      } else {
-        const e = state.desk.find((x) => x.id === id);
-        state.desk = state.desk.filter((x) => x !== e);
-        state.stock[e.bookId] = stockOf(bookById(e.bookId)) + 1;
-      }
-      save(); rerenderSoft();
-      showBar(barMsg('Buku diterima kembali dan stok diperbarui.'));
+      doReturn(btn.dataset.id);
     }, 1100);
   }
   function endHold(btn) { clearTimeout(holdTimer); btn && btn.classList.remove('is-holding'); }
@@ -815,6 +983,22 @@
     }
   });
 
+  document.addEventListener('submit', (e) => {
+    const f = e.target.closest('[data-scan-form]');
+    if (!f) return;
+    e.preventDefault();
+    const input = $('#scan-input', f);
+    if (!parseBookQR(input.value)) {
+      const msg = $('#scan-msg');
+      msg.textContent = `Kode “${input.value.trim()}” tidak ditemukan.`;
+      msg.classList.add('is-err');
+      input.select();
+      return;
+    }
+    handleScan(input.value, f.dataset.mode);
+  });
+
+  $('#scan-btn').innerHTML = ic('scan');
   $('.modal-x').innerHTML = ic('x');
   window.addEventListener('hashchange', route);
   route();

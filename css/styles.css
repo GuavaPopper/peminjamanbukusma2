@@ -547,6 +547,73 @@ p, h1, h2, h3 { margin: 0; }
 .hold:active .hold-fill, .hold.is-holding .hold-fill { clip-path: inset(0 0 0 0); transition: clip-path 1100ms linear; }
 .hold-hint { font-size: 10.5px; color: var(--muted-2); margin-top: 8px; text-align: right; }
 
+/* ── QR label buku ───────────────────────────────────────── */
+.qr-svg { width: 100%; height: auto; }
+.qr-missing { font-size: 11px; color: var(--muted); text-align: center; padding: 20px 0; }
+.scanned { display: flex; align-items: center; gap: 8px; margin: -12px 0 24px; padding: 10px 12px; background: #e9f4ee; color: var(--green); font-size: 11.5px; }
+.scanned svg { width: 14px; height: 14px; flex: none; }
+.scanned b { font-weight: 600; letter-spacing: .02em; }
+.qr-card { display: flex; align-items: center; gap: 22px; max-width: 420px; margin: 40px auto 0; padding: 18px; background: #fff; border: 1px solid var(--line); }
+.qr-card .qr { width: 104px; flex: none; }
+.qr-info small { display: block; font-size: 10.5px; color: var(--muted); }
+.qr-info b { display: block; font: 400 16px/1.3 var(--serif); letter-spacing: .04em; margin: 2px 0 6px; }
+.qr-info p { font-size: 11.5px; color: var(--text-2); line-height: 1.55; margin-bottom: 10px; }
+.qr-info .btn svg, .desk-tools .btn svg, .labels-page .btn svg { width: 13px; height: 13px; }
+
+/* Pemindai */
+.scan-box { position: relative; margin: 18px auto 0; width: 100%; aspect-ratio: 1; background: #111; overflow: hidden; display: grid; place-items: center; }
+.scan-box video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 300ms ease; }
+.scan-box.is-live video { opacity: 1; }
+.scan-frame { position: absolute; inset: 18%; pointer-events: none;
+  background:
+    linear-gradient(#fff 0 0) top left / 22px 2px, linear-gradient(#fff 0 0) top left / 2px 22px,
+    linear-gradient(#fff 0 0) top right / 22px 2px, linear-gradient(#fff 0 0) top right / 2px 22px,
+    linear-gradient(#fff 0 0) bottom left / 22px 2px, linear-gradient(#fff 0 0) bottom left / 2px 22px,
+    linear-gradient(#fff 0 0) bottom right / 22px 2px, linear-gradient(#fff 0 0) bottom right / 2px 22px;
+  background-repeat: no-repeat; }
+.scan-line { position: absolute; inset: 18%; container-type: size; pointer-events: none; opacity: 0; transition: opacity 300ms ease; }
+.scan-line::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: #5fe0a0; box-shadow: 0 0 12px #5fe0a0; }
+.scan-box.is-live .scan-line { opacity: .9; }
+.scan-box.is-live .scan-line::after { animation: scanLine 1.8s linear infinite alternate; }
+@keyframes scanLine { to { transform: translateY(calc(100cqh - 2px)); } }
+.scan-msg { position: relative; z-index: 1; color: rgba(255,255,255,.8); font-size: 11.5px; text-align: center; padding: 0 24px; line-height: 1.5; }
+.scan-msg.is-err { color: #ffb4a2; }
+.scan-box.is-live .scan-msg:not(:empty) { position: absolute; bottom: 12px; left: 12px; right: 12px; background: rgba(0,0,0,.6); padding: 6px 10px; border-radius: 3px; }
+.scan-box.no-cam { aspect-ratio: 16 / 9; }
+.scan-box.no-cam .scan-frame { opacity: .25; }
+.scan-manual { display: flex; gap: 0; margin-top: 12px; }
+.scan-manual input { flex: 1; min-width: 0; height: 28px; padding: 0 10px; border: 1px solid var(--line-strong); border-right: 0; font-size: 11.5px; outline: 0; text-transform: uppercase; }
+.scan-manual input::placeholder { text-transform: none; color: var(--muted-2); }
+.scan-manual input:focus { border-color: var(--black); }
+.scan-manual .btn { border-radius: 0; }
+.scan-hit { display: flex; gap: 16px; align-items: center; margin-bottom: 16px; text-align: left; }
+.scan-hit .thumb-md { width: 52px; }
+.scan-hit small { font-size: 10.5px; color: var(--muted); letter-spacing: .02em; }
+.scan-hit h4 { font-size: 16px; margin: 2px 0; font-weight: 400; }
+.modal .desk-row { text-align: left; }
+.late-txt { color: var(--red); font-weight: 500; }
+
+.desk-tools { display: flex; gap: 8px; }
+
+/* Cetak label */
+.labels-page { max-width: 860px; padding-top: 34px; padding-bottom: 80px; }
+.label-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 12px; }
+.label { display: flex; gap: 10px; align-items: center; padding: 10px; border: 1px dashed var(--dash); background: #fff; break-inside: avoid; }
+.label .qr { width: 68px; flex: none; }
+.label-t { min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: 10px; color: var(--muted); }
+.label-t b { font: 400 11.5px/1.25 var(--serif); color: var(--text); }
+.label-t code { font: 600 11px/1.4 var(--sans); color: var(--text); letter-spacing: .04em; margin-top: 3px; }
+.label-t em { font-style: normal; }
+@media print {
+  @page { margin: 10mm; }
+  .topbar, .topnav, .bar, .modal, .no-print { display: none !important; }
+  body { padding: 0 !important; }
+  .labels-page { max-width: none; padding: 0; }
+  .label-grid { grid-template-columns: repeat(3, 1fr); gap: 4mm; }
+  .label { border: 1px dashed #999; }
+  [data-s] { opacity: 1 !important; transform: none !important; }
+}
+
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 760px) {
   /* backdrop-filter membuat containing block baru → nav fixed ikut header */
@@ -570,6 +637,8 @@ p, h1, h2, h3 { margin: 0; }
   .lib-tools .field { flex: 1; }
   .lib-tools .field input { width: 100%; }
   .desk-grid { grid-template-columns: 1fr; }
+  .desk-head { flex-wrap: wrap; }
+  .qr-card { flex-direction: column; text-align: center; }
   .desk .stat { flex: 1 1 40%; }
   .desk .stat:nth-child(3) { border-left: 0; }
   .pop-notif { width: min(320px, calc(100vw - 24px)); }
@@ -589,4 +658,5 @@ p, h1, h2, h3 { margin: 0; }
   .bar { transform: translate(-50%, 0) !important; }
   .shelf-row a, .mini-row a, .cell .cv, .stack .thumb { transition: none !important; }
   .check-draw circle, .check-draw path { stroke-dashoffset: 0; }
+  .scan-box.is-live .scan-line::after { animation: none; top: 50%; }
 }
