@@ -596,7 +596,7 @@ p, h1, h2, h3 { margin: 0; }
 .desk-tools { display: flex; gap: 8px; }
 
 /* Eksemplar */
-.copy-code { font-weight: 600; color: var(--text-2); letter-spacing: .03em; }
+.copy-code { font-weight: 600; color: var(--text-2); letter-spacing: .03em; white-space: nowrap; }
 .copies { max-width: 420px; margin: 40px auto 0; }
 .copies-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .copies-head h3 { font-size: 15px; }
@@ -615,6 +615,85 @@ p, h1, h2, h3 { margin: 0; }
 .scan-warn { display: flex; gap: 8px; margin-top: 12px; padding: 10px; background: #fbf3e4; color: #7a5212; font-size: 11px; line-height: 1.5; text-align: left; }
 .scan-warn svg { width: 14px; height: 14px; flex: none; margin-top: 1px; }
 .label-out { color: var(--red); }
+
+/* Meja sirkulasi: pindai → NISN */
+.scan-cta {
+  width: 100%; display: grid; justify-items: center; gap: 4px; padding: 26px 16px;
+  border: 1px dashed var(--dash); background: #fff; text-align: center;
+  transition: border-color 150ms ease, background-color 150ms ease, transform 160ms var(--ease-out);
+}
+.scan-cta svg { width: 26px; height: 26px; margin-bottom: 6px; color: var(--text); }
+.scan-cta b { font: 400 15px/1.3 var(--serif); }
+.scan-cta span { font-size: 11.5px; color: var(--muted); }
+.scan-cta:active { transform: scale(.985); }
+@media (hover: hover) and (pointer: fine) { .scan-cta:hover { border-color: var(--black); background: var(--bg-soft); } }
+.desk .scan-manual { margin-top: 8px; }
+.desk-code-msg { font-size: 11px; color: var(--red); margin-top: 6px; min-height: 1em; }
+.desk-code-msg:empty { display: none; }
+.log-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 11.5px; color: var(--text-2); }
+.log-item:last-child { border-bottom: 0; }
+.log-item p { flex: 1; min-width: 0; }
+.log-item b { font-weight: 500; color: var(--text); }
+.log-item small { display: block; font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+.log-item time { font-size: 10.5px; color: var(--muted-2); }
+.log-dot { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.log-dot svg { width: 12px; height: 12px; }
+.log-dot.pinjam { background: #eaf1fb; color: #3b6fb6; }
+.log-dot.kembali { background: #e9f4ee; color: var(--green); }
+.desk-filters { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.desk-filters .field { flex: 1; min-width: 180px; }
+.desk-filters .field input { width: 100%; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); background: #fff; }
+.seg-btn { height: 32px; padding: 0 12px; font-size: 11.5px; color: var(--muted); white-space: nowrap; transition: background-color 150ms ease, color 150ms ease; }
+.seg-btn + .seg-btn { border-left: 1px solid var(--line-strong); }
+.seg-btn[aria-pressed="true"] { background: var(--black); color: #fff; }
+.seg-btn sup { font-size: 9.5px; margin-left: 2px; opacity: .7; }
+
+.nisn-form { text-align: left; }
+.field-label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+.nisn-input {
+  width: 100%; height: 44px; padding: 0 12px; border: 1px solid var(--line-strong); outline: 0; background: #fff;
+  font: 500 20px/1 var(--sans); letter-spacing: .14em; font-variant-numeric: tabular-nums;
+  transition: border-color 150ms ease;
+}
+.nisn-input::placeholder { font-size: 13px; letter-spacing: 0; font-weight: 400; color: var(--muted-2); }
+.nisn-input:focus { border-color: var(--black); }
+.nisn-result { min-height: 8px; margin: 8px 0 12px; }
+.nisn-result:empty { margin: 4px 0; }
+.nisn-hint { font-size: 11px; color: var(--muted); }
+.nisn-err { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; margin-top: 8px; background: #fbece8; color: var(--red); font-size: 11.5px; line-height: 1.45; }
+.nisn-err svg { width: 14px; height: 14px; flex: none; margin-top: 1px; }
+.person { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); background: #fff; text-align: left; }
+.person .who { font-size: 12.5px; color: var(--text); }
+.person .who span { color: var(--muted); font-size: 11px; margin-left: 6px; }
+.ok-txt { color: var(--green); font-weight: 500; }
+.dur { display: flex; width: 100%; margin-bottom: 12px; }
+.dur .seg-btn { flex: 1; }
+.dur-fixed { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-2); background: var(--bg-soft); padding: 8px 10px; margin-bottom: 12px; }
+.dur-fixed svg { width: 14px; height: 14px; }
+.nisn-submit { width: 100%; height: 38px; }
+.nisn-submit:disabled { opacity: .35; pointer-events: none; }
+.demo-nisn { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line-strong); font-size: 10.5px; color: var(--muted); }
+.demo-chip { height: 22px; padding: 0 9px; border-radius: 999px; background: var(--surface); font-size: 10.5px; color: var(--text-2); transition: background-color 150ms ease, transform 160ms var(--ease-out); }
+.demo-chip:active { transform: scale(.95); }
+@media (hover: hover) and (pointer: fine) { .demo-chip:hover { background: var(--surface-2); } }
+.modal .person { margin-bottom: 4px; }
+.modal .m-detail dd.late-txt { font-weight: 500; color: var(--red); }
+.modal .m-detail dd.ok-txt { font-weight: 500; color: var(--green); }
+/* Nama di satu baris; kelas + NISN di baris kedua */
+.desk .desk-row .who { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.desk .desk-row .who span { display: block; margin-left: 0; font-size: 10.5px; }
+.fine-note { margin: 12px auto 0; padding: 8px 12px; background: #fbece8; color: var(--red); font-size: 12px; text-align: center; max-width: 250px; }
+
+/* Cara pinjam (siswa) */
+.steps { list-style: none; counter-reset: s; margin: 20px 0 0; padding: 0; display: grid; gap: 14px; text-align: left; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 24px 1fr; column-gap: 12px; font-size: 12px; animation: rollIn 380ms var(--ease-out) backwards; }
+.steps li:nth-child(2) { animation-delay: 60ms; }
+.steps li:nth-child(3) { animation-delay: 120ms; }
+.steps li::before { content: counter(s); grid-row: span 2; width: 24px; height: 24px; border-radius: 50%; background: var(--black); color: #fff; display: grid; place-items: center; font-size: 11px; font-weight: 600; }
+.steps b { font-weight: 500; color: var(--text); }
+.steps span { color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+span.btn[aria-disabled="true"] { opacity: .5; pointer-events: none; }
 
 /* Cetak label */
 .labels-page { max-width: 860px; padding-top: 34px; padding-bottom: 80px; }

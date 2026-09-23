@@ -134,11 +134,22 @@ window.FEED = [
   { who: 'Rafi Akbar', av: '#9cc5a1', cls: 'XI MIPA 1', verb: 'menyimpan', mins: 320, bookId: 'kosmos' }
 ];
 
-window.STUDENTS = [
-  { name: 'Dimas Pratama', cls: 'XII IPS 1', av: '#7fa7c9' },
-  { name: 'Salsa Nabila', cls: 'X-3', av: '#d8a48f' },
-  { name: 'Rafi Akbar', cls: 'XI MIPA 1', av: '#9cc5a1' },
-  { name: 'Nadia Ayu', cls: 'XII MIPA 3', av: '#c7a0d6' }
+/* Data siswa (dummy). NISN 10 digit; `active: false` = sudah lulus/pindah, tidak boleh meminjam. */
+window.ROSTER = [
+  { nisn: '0087654321', name: 'Alya Putri', cls: 'XI MIPA 2', av: '#c9a27e', active: true, me: true },
+  { nisn: '0081234501', name: 'Dimas Pratama', cls: 'XII IPS 1', av: '#7fa7c9', active: true },
+  { nisn: '0091234502', name: 'Salsa Nabila', cls: 'X-3', av: '#d8a48f', active: true },
+  { nisn: '0081234503', name: 'Rafi Akbar', cls: 'XI MIPA 1', av: '#9cc5a1', active: true },
+  { nisn: '0081234504', name: 'Nadia Ayu', cls: 'XII MIPA 3', av: '#c7a0d6', active: true },
+  { nisn: '0081234505', name: 'Bima Saputra', cls: 'XII IPS 2', av: '#a3b18a', active: true },
+  { nisn: '0091234506', name: 'Citra Lestari', cls: 'X-1', av: '#e5989b', active: true },
+  { nisn: '0081234507', name: 'Fajar Nugroho', cls: 'XI MIPA 3', av: '#8ecae6', active: true },
+  { nisn: '0081234508', name: 'Gita Maharani', cls: 'XII MIPA 1', av: '#cdb4db', active: true },
+  { nisn: '0091234509', name: 'Hana Prameswari', cls: 'X-4', av: '#f4a261', active: true },
+  { nisn: '0081234510', name: 'Ilham Ramadhan', cls: 'XI IPS 1', av: '#90be6d', active: true },
+  { nisn: '0081234511', name: 'Kirana Dewi', cls: 'XII IPS 3', av: '#b5838d', active: true },
+  { nisn: '0091234512', name: 'Yoga Pratama', cls: 'X-2', av: '#6d9dc5', active: true },
+  { nisn: '0071234599', name: 'Rizky Maulana', cls: 'Alumni 2026', av: '#a0a0a0', active: false, note: 'Lulus Juni 2026' }
 ];
 
-window.ME = { name: 'Alya Putri', cls: 'XI MIPA 2', nis: '2324.11.087', av: '#c9a27e' };
+window.ME = { name: 'Alya Putri', cls: 'XI MIPA 2', nis: '2324.11.087', nisn: '0087654321', av: '#c9a27e' };

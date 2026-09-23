@@ -90,16 +90,25 @@
   }
 
   /* ── State (disimpan di localStorage bila tersedia) ──────── */
-  const KEY = 'pinjam-proto-v2';
-  // Peminjam lain (dummy) untuk eksemplar yang sudah keluar sejak awal
-  const OTHERS = [['Bima Saputra', 'XII IPS 2'], ['Citra Lestari', 'X-1'], ['Fajar Nugroho', 'XI MIPA 3'], ['Gita Maharani', 'XII MIPA 1'],
-    ['Hana Prameswari', 'X-4'], ['Ilham Ramadhan', 'XI IPS 1'], ['Kirana Dewi', 'XII IPS 3'], ['Yoga Pratama', 'X-2']];
+  const KEY = 'pinjam-proto-v3';
+  const MAX_LOANS = 3;            // batas buku bacaan per siswa (buku paket tidak dihitung)
+  const FINE = 500;               // denda per hari keterlambatan
+  const isPaket = (b) => b.category === 'Pelajaran';
+  // Buku paket dipinjam sampai akhir semester
+  const SEM_END = (() => {
+    const d = new Date(), y = d.getFullYear();
+    const e = d.getMonth() < 6 ? new Date(y, 5, 19) : new Date(y, 11, 18);
+    return e.getTime();
+  })();
+  const studentByNisn = (n) => ROSTER.find((x) => x.nisn === n) || null;
+
   function seed() {
     const t = today0();
     return {
+      // Pinjaman milik Alya (siswa yang sedang login)
       loans: [
-        { id: 'L1', bookId: 'filosofi-teras', start: t - 10 * DAY, due: t + 4 * DAY, status: 'dipinjam', renewed: false, code: 'PJM-3107', copy: 2 },
-        { id: 'L2', bookId: 'bumi-manusia', start: t - 15 * DAY, due: t - 1 * DAY, status: 'dipinjam', renewed: true, code: 'PJM-2984', copy: 1 }
+        { id: 'L1', bookId: 'filosofi-teras', copy: 2, start: t - 10 * DAY, due: t + 4 * DAY, renewed: false, code: 'PJM-3107' },
+        { id: 'L2', bookId: 'bumi-manusia', copy: 1, start: t - 15 * DAY, due: t - 1 * DAY, renewed: true, code: 'PJM-2984' }
       ],
       history: [
         { bookId: 'negeri-5-menara', start: t - 60 * DAY, returned: t - 47 * DAY },
@@ -107,34 +116,39 @@
         { bookId: 'matematika-xii', start: t - 90 * DAY, returned: t - 70 * DAY }
       ],
       saved: ['sapiens', 'kosmos', 'laut-bercerita', 'hujan'],
-      queue: [],
       copies: {},
       goal: { target: 12, done: 3 },
       hideRules: false,
       liked: {},
       notifRead: false,
+      // Pinjaman siswa lain (dicatat petugas lewat NISN)
       desk: [
-        { id: 'D1', student: 0, bookId: 'bumi', type: 'pickup', code: 'PJM-5512', days: 14 },
-        { id: 'D2', student: 3, bookId: 'fisika-xi', type: 'pickup', code: 'PJM-5530', days: 7 },
-        { id: 'D3', student: 1, bookId: 'hujan', type: 'return', code: 'PJM-4471', due: t + 1 * DAY, copy: 1 },
-        { id: 'D4', student: 2, bookId: 'kosmos', type: 'return', code: 'PJM-4388', due: t - 2 * DAY, copy: 2 }
-      ]
+        { id: 'D3', nisn: '0091234502', bookId: 'hujan', copy: 1, start: t - 13 * DAY, due: t + 1 * DAY, code: 'PJM-4471' },
+        { id: 'D4', nisn: '0081234503', bookId: 'kosmos', copy: 2, start: t - 16 * DAY, due: t - 2 * DAY, code: 'PJM-4388' }
+      ],
+      log: []
     };
   }
-  // Tiap eksemplar: null = di rak, atau catatan pemegangnya
+  // Tiap eksemplar: null = di rak, atau { t: 'me' | 'desk', id } = sedang dipinjam
   function seedCopies(st) {
     const t = today0();
-    let k = 0;
+    const pool = ROSTER.filter((x) => x.active && !x.me);
+    let kb = 0, kp = 0;
     BOOKS.forEach((b) => {
       const arr = Array(b.total).fill(null);
-      st.loans.forEach((l) => { if (l.bookId === b.id && l.copy) arr[l.copy - 1] = { t: 'me', id: l.id }; });
-      st.desk.forEach((e) => { if (e.bookId === b.id && e.copy) arr[e.copy - 1] = { t: 'desk', id: e.id }; });
+      st.loans.forEach((l) => { if (l.bookId === b.id) arr[l.copy - 1] = { t: 'me', id: l.id }; });
+      st.desk.forEach((e) => { if (e.bookId === b.id) arr[e.copy - 1] = { t: 'desk', id: e.id }; });
       let out = (b.total - b.stock) - arr.filter(Boolean).length;
       for (let i = b.total - 1; i >= 0 && out > 0; i--) {
         if (arr[i]) continue;
-        const [name, cls] = OTHERS[k % OTHERS.length];
-        arr[i] = { t: 'other', name, cls, due: t + (((k * 5) % 17) - 3) * DAY };
-        k++; out--;
+        const paket = isPaket(b);
+        const who = pool[(paket ? kp : kb) % pool.length];
+        const due = paket ? SEM_END : t + ((((kb * 7) + 4) % 17) - 3) * DAY;
+        const e = { id: `S${b.id}-${i + 1}`, nisn: who.nisn, bookId: b.id, copy: i + 1, start: paket ? t - 60 * DAY : due - 14 * DAY, due, code: 'PJM-' + (4000 + kb + kp) };
+        st.desk.push(e);
+        arr[i] = { t: 'desk', id: e.id };
+        paket ? kp++ : kb++;
+        out--;
       }
       st.copies[b.id] = arr;
     });
@@ -146,33 +160,34 @@
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* mode privat */ } };
   if (!state) { state = fresh(); save(); }
 
-  /* ── Eksemplar ───────────────────────────────────────────── */
+  /* ── Eksemplar & peminjam ────────────────────────────────── */
   const copiesOf = (b) => state.copies[b.id];
   const freeCount = (b) => copiesOf(b).filter((h) => !h).length;
-  const pendingCount = (b) => state.loans.filter((l) => l.bookId === b.id && l.status === 'menunggu').length +
-    state.desk.filter((e) => e.bookId === b.id && e.type === 'pickup').length;
-  // Bisa dipinjam = eksemplar di rak dikurangi pesanan yang belum diambil
-  const stockOf = (b) => Math.max(0, freeCount(b) - pendingCount(b));
-  const firstFree = (b) => copiesOf(b).findIndex((h) => !h) + 1;
+  const stockOf = freeCount;
   function holderOf(b, n) {
     const h = copiesOf(b)[n - 1];
     if (!h) return null;
     if (h.t === 'me') {
       const l = state.loans.find((x) => x.id === h.id);
-      return { kind: 'me', name: ME.name, cls: ME.cls, av: ME.av, due: l.due, entryId: 'me-' + l.id };
+      return { ...studentByNisn(ME.nisn), due: l.due, start: l.start, entryId: 'me-' + l.id };
     }
-    if (h.t === 'desk') {
-      const e = state.desk.find((x) => x.id === h.id), st = STUDENTS[e.student];
-      return { kind: 'desk', name: st.name, cls: st.cls, av: st.av, due: e.due, entryId: e.id };
-    }
-    return { kind: 'other', name: h.name, cls: h.cls, av: '#b8b2a7', due: h.due, entryId: `other:${b.id}:${n}` };
+    const e = state.desk.find((x) => x.id === h.id);
+    return { ...studentByNisn(e.nisn), due: e.due, start: e.start, entryId: e.id };
   }
+  // Semua pinjaman aktif (milik Alya + siswa lain) dalam satu bentuk
+  function allLoans() {
+    return [
+      ...state.loans.map((l) => ({ ...l, id: 'me-' + l.id, nisn: ME.nisn, me: true })),
+      ...state.desk
+    ];
+  }
+  const loansOfNisn = (nisn) => allLoans().filter((l) => l.nisn === nisn);
   const activeLoans = () => state.loans;
   const loanOf = (id) => state.loans.find((l) => l.bookId === id);
-  const MAX_LOANS = 3;
+  const lateDays = (due) => Math.max(0, Math.round((today0() - due) / DAY));
+  const rupiah = (n) => 'Rp' + n.toLocaleString('id-ID');
 
   function loanStatus(l) {
-    if (l.status === 'menunggu') return { cls: 'wait', pill: 'wait', text: 'Siap diambil di meja sirkulasi', short: 'Siap diambil' };
     const d = Math.round((l.due - today0()) / DAY);
     if (d < 0) return { cls: 'late', pill: 'late', text: `Terlambat ${-d} hari`, short: 'Terlambat' };
     if (d === 0) return { cls: 'warn', pill: 'warn', text: 'Kembalikan hari ini', short: 'Hari ini' };
@@ -283,48 +298,19 @@
     lastFocus && lastFocus.focus && lastFocus.focus({ preventScroll: true });
   }
 
-  /* ── Alur pinjam ─────────────────────────────────────────── */
-  function borrowStep(b) {
-    if (state.loans.length >= MAX_LOANS) {
-      return `<div class="m-step"><h3 class="serif m-title"><em>Batas pinjam</em><br>tercapai</h3>
-        <p class="m-body">Kamu sedang meminjam ${MAX_LOANS} buku. Kembalikan salah satunya dulu untuk meminjam <b>${esc(b.title)}</b>.</p>
-        <div class="m-actions"><a class="btn btn-black btn-sm" href="#/pustaka" data-close>Lihat pinjaman</a></div></div>`;
-    }
-    const t = today0();
-    const opt = (d) => `<button class="btn btn-black m-opt" data-action="borrow-go" data-id="${b.id}" data-days="${d}">
-      <span class="swap"><span class="a">${d} hari · kembali ${fmtDay(t + d * DAY)}</span><span class="b"><span class="spinner"></span></span></span></button>`;
-    return `<div class="m-step"><h3 class="serif m-title"><em>Pinjam</em><br>${esc(b.title)}<br><em>selama</em></h3>
-      <div class="m-options">${opt(7)}${opt(14)}</div>
-      <p class="m-note">Ambil di meja sirkulasi · Sen–Jum, 07.00–15.30</p></div>`;
-  }
-  function openBorrow(id) {
+  /* ── Cara meminjam (siswa) ────────────────────────────────── */
+  // Peminjaman dicatat petugas di meja sirkulasi: pindai QR buku, lalu isi NISN.
+  function openHowTo(id) {
     const b = bookById(id);
-    openModal(borrowStep(b));
-  }
-  function doBorrow(btn) {
-    const b = bookById(btn.dataset.id), days = +btn.dataset.days;
-    $$('.m-opt', modalInner).forEach((x) => x.setAttribute('aria-disabled', 'true'));
-    btn.removeAttribute('aria-disabled');
-    btn.style.pointerEvents = 'none';
-    $('.swap', btn).classList.add('on');
-    setTimeout(() => {
-      const t = today0();
-      const loan = { id: 'L' + Date.now(), bookId: b.id, start: t, due: t + days * DAY, status: 'menunggu', renewed: false, code: code(), days };
-      state.loans.push(loan);
-      state.saved = state.saved.filter((x) => x !== b.id);
-      save();
-      const digits = loan.code.split('').map((c, i) => `<span style="animation-delay:${420 + i * 45}ms">${c}</span>`).join('');
-      morph(modalBox, modalInner, () => {
-        modalInner.innerHTML = `<div class="m-step">
-          <svg class="check-draw" viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="20"/><path d="m14 22.5 5.5 5.5L30 17"/></svg>
-          <h3 class="serif m-title">Buku siap diambil</h3>
-          <p class="m-body">Tunjukkan kode ini ke petugas perpustakaan.</p>
-          <div class="code" aria-label="Kode pinjam ${loan.code}">${digits}</div>
-          <dl class="m-detail"><dt>Buku</dt><dd>${esc(b.title)}</dd><dt>Durasi</dt><dd>${days} hari</dd><dt>Kembali</dt><dd>${fmtDay(loan.due)}</dd></dl>
-          <div class="m-actions"><a class="btn btn-black btn-sm" href="#/pustaka" data-close>Lihat pinjaman</a><button class="btn btn-outline btn-sm" data-close>Tutup</button></div></div>`;
-      });
-      rerenderSoft();
-    }, 700);
+    openModal(`<div class="m-step">
+      <h3 class="serif m-title"><em>Pinjam</em><br>${esc(b.title)}<br><em>di perpustakaan</em></h3>
+      <ol class="steps">
+        <li><b>Ambil bukunya di Rak ${esc(b.shelf)}</b><span>${stockOf(b)} eksemplar sedang di rak</span></li>
+        <li><b>Bawa ke meja sirkulasi</b><span>Sen–Kam 07.00–15.30 · Jum 07.00–12.00</span></li>
+        <li><b>Sebutkan NISN kamu</b><span>Petugas memindai QR di sampul belakang, lalu pinjamanmu langsung muncul di Pustakaku</span></li>
+      </ol>
+      <p class="m-note">NISN kamu: <b class="copy-code">${ME.nisn}</b></p>
+      <div class="m-actions"><button class="btn btn-black btn-sm" data-close>Mengerti</button></div></div>`);
   }
 
   /* ── Header: pencarian, notifikasi, menu ─────────────────── */
@@ -378,13 +364,12 @@
   sPop.addEventListener('click', (e) => { if (e.target.closest('.sr-item')) setTimeout(clearSearch, 0); });
   sBtn.addEventListener('click', () => { sInput.value ? clearSearch() : null; sInput.focus(); });
 
+  const RULES = `Pinjam di meja sirkulasi dengan NISN · maks. ${MAX_LOANS} buku bacaan, 7 atau 14 hari · buku paket 1 semester · perpanjang 1 kali · denda ${rupiah(FINE)}/hari.`;
   function renderHeaderPops() {
     const late = state.loans.filter((l) => loanStatus(l).pill === 'late');
     const soon = state.loans.filter((l) => loanStatus(l).pill === 'warn');
-    const ready = state.loans.filter((l) => l.status === 'menunggu');
     const items = [
       ...late.map((l) => ({ dot: 'red', t: `<b>${esc(bookById(l.bookId).title)}</b> terlambat dikembalikan. Denda berjalan Rp500/hari.`, s: 'Hari ini' })),
-      ...ready.map((l) => ({ dot: '', t: `<b>${esc(bookById(l.bookId).title)}</b> siap diambil. Kode ${l.code}.`, s: 'Baru saja' })),
       ...soon.map((l) => ({ dot: '', t: `<b>${esc(bookById(l.bookId).title)}</b> jatuh tempo ${fmtDay(l.due)}.`, s: 'Pengingat' })),
       { dot: '', t: 'Perpustakaan tutup pukul 12.00 setiap hari Jumat.', s: 'Pengumuman · 2 hari lalu' }
     ];
@@ -392,9 +377,9 @@
       items.map((n) => `<div class="notif-item"><span class="dot ${n.dot}"></span><p>${n.t}<small>${n.s}</small></p></div>`).join('');
     $('#help-pop').innerHTML = `
       <button class="menu-item" data-action="info" data-msg="Jam buka: Senin–Kamis 07.00–15.30, Jumat 07.00–12.00.">${ic('clock')}Jam buka</button>
-      <button class="menu-item" data-action="info" data-msg="Maksimal ${MAX_LOANS} buku · 7 atau 14 hari · perpanjang 1 kali · denda Rp500/hari.">${ic('info')}Tata tertib</button>
+      <button class="menu-item" data-action="info" data-msg="${RULES}">${ic('info')}Tata tertib</button>
       <button class="menu-item" data-action="reset">${ic('renew')}Atur ulang data demo</button>`;
-    $('#me-pop').innerHTML = `<div class="menu-head"><b>${ME.name}</b><span>${ME.cls} · NIS ${ME.nis}</span></div><div class="menu-sep"></div>
+    $('#me-pop').innerHTML = `<div class="menu-head"><b>${ME.name}</b><span>${ME.cls} · NISN ${ME.nisn}</span></div><div class="menu-sep"></div>
       <a class="menu-item" href="#/pustaka">${ic('book')}Pustakaku</a>
       <a class="menu-item" href="#/petugas">${ic('desk')}Mode petugas</a>
       <div class="menu-sep"></div>
@@ -415,10 +400,9 @@
         <div class="pop pop-right" id="lm-${l.id}">
           <button class="menu-item" data-action="renew" data-id="${l.id}" ${canRenew(l) ? '' : 'disabled style="opacity:.4;pointer-events:none"'}>${ic('renew')}Perpanjang 7 hari</button>
           <a class="menu-item" href="#/buku/${b.id}">${ic('book')}Lihat detail</a>
-          ${l.status === 'menunggu' ? `<button class="menu-item danger" data-action="cancel" data-id="${l.id}">${ic('x')}Batalkan</button>` : ''}
         </div></div></div>`;
   }
-  const canRenew = (l) => l.status === 'dipinjam' && !l.renewed && loanStatus(l).pill !== 'late';
+  const canRenew = (l) => !l.renewed && !isPaket(bookById(l.bookId)) && loanStatus(l).pill !== 'late';
 
   function feedItem(f) {
     const liked = state.liked[f.who];
@@ -442,11 +426,11 @@
         ${loans.length ? `<div class="list-box" data-s id="home-loans">${loans.map(loanRow).join('')}</div>`
           : `<div class="dashed" data-s><a class="btn btn-ghost" href="#/jelajah">Cari buku</a></div>`}
         <div class="soft-card" data-s>${ring(g.done / g.target, g.done)}<div class="grow"><small>Target</small>Baca ${g.target} buku di 2026</div></div>
-        ${state.hideRules ? '' : `<div class="soft-card collapse" data-s id="rules">${ic('info')}<div class="grow">Maks. ${MAX_LOANS} buku · 14 hari</div><button class="link-muted" data-action="hide-rules">Sembunyikan</button></div>`}
+        ${state.hideRules ? '' : `<div class="soft-card collapse" data-s id="rules">${ic('info')}<div class="grow">Pinjam di meja sirkulasi · sebutkan NISN</div><button class="link-muted" data-action="hide-rules">Sembunyikan</button></div>`}
         <h2 class="serif h-sec mt" data-s>Jelajahi</h2>
         <a class="promo-card" href="#/jelajah" data-s><div><small>Baru di perpustakaan</small><p>Lihat buku yang masuk<br>minggu ini</p></div><div class="stack">${newBooks.map((b) => thumb(b)).join('')}</div></a>
         <a class="soft-card" href="#/jelajah" data-s>${ic('bookmark')}<div class="grow">Rak pilihan guru</div>${ic('arrow')}</a>
-        <nav class="foot" data-s><a href="#/">Tentang</a><a href="#/" data-action="info" data-msg="Maksimal ${MAX_LOANS} buku · 7 atau 14 hari · perpanjang 1 kali · denda Rp500/hari.">Tata tertib</a><a href="#/" data-action="info" data-msg="Senin–Kamis 07.00–15.30, Jumat 07.00–12.00.">Jam buka</a><a href="#/petugas">Petugas</a></nav>
+        <nav class="foot" data-s><a href="#/">Tentang</a><a href="#/" data-action="info" data-msg="${RULES}">Tata tertib</a><a href="#/" data-action="info" data-msg="Senin–Kamis 07.00–15.30, Jumat 07.00–12.00.">Jam buka</a><a href="#/petugas">Petugas</a></nav>
       </section>
       <section>
         <div class="sec-head" data-s><h2 class="serif h-sec">Aktivitas</h2></div>
@@ -459,11 +443,9 @@
   function primaryAction(b, compact) {
     const l = loanOf(b.id);
     const size = compact ? 'btn-sm' : '';
-    if (l) return `<a class="btn btn-outline ${size}" href="#/pustaka">${l.status === 'menunggu' ? 'Siap diambil' : 'Sedang kamu pinjam'}</a>`;
-    if (stockOf(b) > 0) return `<button class="btn btn-green ${size}" data-action="borrow" data-id="${b.id}">Pinjam</button>`;
-    const qi = state.queue.indexOf(b.id);
-    if (qi >= 0) return `<button class="btn btn-outline ${size}" data-action="queue" data-id="${b.id}">Dalam antrean · #${qi + 2}</button>`;
-    return `<button class="btn btn-black ${size}" data-action="queue" data-id="${b.id}">Antre</button>`;
+    if (l) return `<a class="btn btn-outline ${size}" href="#/pustaka">Sedang kamu pinjam</a>`;
+    if (stockOf(b) > 0) return `<button class="btn btn-green ${size}" data-action="howto" data-id="${b.id}">Cara pinjam</button>`;
+    return `<span class="btn btn-outline ${size}" aria-disabled="true">Semua eksemplar dipinjam</span>`;
   }
 
   /* ── Tampilan: Detail buku ───────────────────────────────── */
@@ -542,9 +524,8 @@
       }
       return `<div class="copy-row${cur ? ' is-current' : ''}${i >= LIMIT && !cur ? ' is-extra' : ''}"><code>${bookCode(b, n)}</code>${pill}<span class="copy-note">${cur ? 'eksemplar yang kamu pindai' : note}</span></div>`;
     }).join('');
-    const pend = pendingCount(b);
     return `<section class="copies${b.total > LIMIT ? '' : ' is-all'}" id="copies" data-s>
-      <div class="copies-head"><h3 class="serif">Eksemplar</h3><span class="count">${freeCount(b)} dari ${b.total} di rak${pend ? ` · ${pend} menunggu diambil` : ''}</span></div>
+      <div class="copies-head"><h3 class="serif">Eksemplar</h3><span class="count">${freeCount(b)} dari ${b.total} di rak</span></div>
       <div class="list-box copy-list">${rows}</div>
       ${b.total > LIMIT ? `<button class="link-muted copies-more" data-action="copies-more">Lihat semua ${b.total} eksemplar</button>` : ''}
     </section>`;
@@ -588,16 +569,12 @@
       if (!rows.length) return emptySearch();
       return `<div class="list-box" data-s>${rows.map((l) => {
         const b = bookById(l.bookId), st = loanStatus(l);
-        const dateLine = l.status === 'menunggu'
-          ? `${ic('clock')}Ambil sebelum 15.30 hari ini · ${l.days || 14} hari · eksemplar dipilih petugas`
-          : `${l.copy ? `<b class="copy-code">${bookCode(b, l.copy)}</b> · ` : ''}${fmtShort(l.start)} ${ic('arrow')} <span class="due-date">${fmtShort(l.due)}</span>${l.renewed ? ' · sudah diperpanjang' : ''}`;
-        const btn = l.status === 'menunggu'
-          ? `<button class="btn btn-ghost" data-action="cancel" data-id="${l.id}">Batalkan</button>`
-          : `<button class="btn btn-ghost" data-action="renew" data-id="${l.id}" ${canRenew(l) ? '' : 'disabled'}>Perpanjang</button>`;
+        const dateLine = `<b class="copy-code">${bookCode(b, l.copy)}</b> · ${fmtShort(l.start)} ${ic('arrow')} <span class="due-date">${fmtShort(l.due)}</span>${isPaket(b) ? ' · 1 semester' : ''}${l.renewed ? ' · sudah diperpanjang' : ''}`;
+        const btn = `<button class="btn btn-ghost" data-action="renew" data-id="${l.id}" ${canRenew(l) ? '' : 'disabled'}>Perpanjang</button>`;
         return `<div class="lib-row" data-loan="${l.id}"><a href="#/buku/${b.id}">${thumb(b)}</a>
           <div style="min-width:0"><p class="row-t">${esc(b.title)}</p><p class="row-a">${esc(b.author)}</p><p class="dates">${dateLine}</p></div>
           <div class="right"><span class="pill ${st.pill}">${st.short}</span>${btn}<span class="code-sm">${l.code}</span></div></div>`;
-      }).join('')}</div>${state.loans.some((l) => loanStatus(l).pill === 'late') ? `<p class="empty-note">Buku yang terlambat tidak bisa diperpanjang. Denda Rp500/hari dibayar di meja sirkulasi.</p>` : ''}`;
+      }).join('')}</div>${state.loans.some((l) => loanStatus(l).pill === 'late') ? `<p class="empty-note">Buku yang terlambat tidak bisa diperpanjang. Denda ${rupiah(FINE)}/hari dibayar di meja sirkulasi.</p>` : ''}`;
     }
     if (tab === 'riwayat') {
       const rows = state.history.filter((h) => match(bookById(h.bookId)));
@@ -622,51 +599,81 @@
     return `<div class="container lib">
       <div class="lib-head" data-s>
         <div class="tabs" role="tablist">${TABS.map(([k, v]) => `<a class="tab" role="tab" href="#/pustaka/${k}" aria-selected="${k === tab}">${v}<sup>${counts[k]}</sup></a>`).join('')}</div>
-        <div class="lib-tools"><label class="field">${ic('search')}<input id="lib-q" placeholder="Cari di pustakamu…" value="${esc(libQuery)}" /></label><a class="btn btn-black" href="#/jelajah">Pinjam buku</a></div>
+        <div class="lib-tools"><label class="field">${ic('search')}<input id="lib-q" placeholder="Cari di pustakamu…" value="${esc(libQuery)}" /></label><a class="btn btn-black" href="#/jelajah">Cari buku</a></div>
       </div>
       <div class="lib-body" id="lib-body" data-tab="${tab}">${libBody(tab)}</div>
     </div>`;
   }
 
   /* ── Tampilan: Petugas (meja sirkulasi) ──────────────────── */
-  function deskEntries() {
-    // Gabungkan antrean siswa lain + pinjaman milik Alya
-    const mine = state.loans.map((l) => ({
-      id: 'me-' + l.id, loanId: l.id, me: true, bookId: l.bookId, code: l.code,
-      type: l.status === 'menunggu' ? 'pickup' : 'return', due: l.due, days: l.days || 14, copy: l.copy
-    }));
-    return [...mine, ...state.desk];
-  }
+  let deskQuery = '', deskKind = 'bacaan', deskAll = false;
+  const DESK_LIMIT = 12;
   function deskRow(e) {
-    const b = bookById(e.bookId);
-    const s = e.me ? { name: ME.name, cls: ME.cls, av: ME.av } : STUDENTS[e.student];
-    const meta = e.type === 'pickup' ? `${e.days} hari · ${e.code}` : `<b class="copy-code">${bookCode(b, e.copy)}</b> · jatuh tempo ${fmtShort(e.due)}`;
-    const late = e.type === 'return' && e.due < today0();
-    const btn = e.type === 'pickup'
-      ? `<button class="btn btn-green btn-sm" data-action="handover" data-id="${e.id}">Serahkan</button>`
-      : `<button class="btn btn-sm hold" data-action="hold-return" data-id="${e.id}" aria-label="Tahan untuk menerima kembali"><span>Terima</span><span class="hold-fill" aria-hidden="true">${ic('check')}Terima</span></button>`;
-    return `<div class="desk-row" data-entry="${e.id}"><span class="avatar lg" style="--av:${s.av}">${initials(s.name)}</span>
-      <div class="grow"><p class="who">${esc(s.name)}<span>${esc(s.cls)}</span></p><div class="bk">${thumb(b)}<span>${esc(b.title)} · ${meta}</span></div></div>
-      ${late ? '<span class="pill late">Terlambat</span>' : ''}${btn}</div>`;
+    const b = bookById(e.bookId), p = studentByNisn(e.nisn);
+    const late = e.due < today0();
+    return `<div class="desk-row" data-entry="${e.id}"><span class="avatar lg" style="--av:${p.av}">${initials(p.name)}</span>
+      <div class="grow"><p class="who">${esc(p.name)}<span>${esc(p.cls)} · ${p.nisn}</span></p>
+        <div class="bk">${thumb(b)}<span>${esc(b.title)} · <b class="copy-code">${bookCode(b, e.copy)}</b> · ${isPaket(b) ? 's.d.' : 'jatuh tempo'} ${fmtShort(e.due)}</span></div></div>
+      ${late ? '<span class="pill late">Terlambat</span>' : ''}
+      <button class="btn btn-sm hold" data-action="hold-return" data-id="${e.id}" aria-label="Tahan untuk menerima kembali"><span>Terima</span><span class="hold-fill" aria-hidden="true">${ic('check')}Terima</span></button></div>`;
+  }
+  function deskListHTML() {
+    const q = deskQuery.trim().toLowerCase();
+    const rows = allLoans()
+      .filter((e) => (deskKind === 'paket') === isPaket(bookById(e.bookId)))
+      .filter((e) => {
+        if (!q) return true;
+        const b = bookById(e.bookId), p = studentByNisn(e.nisn);
+        return `${p.name} ${p.nisn} ${b.title} ${bookCode(b, e.copy)}`.toLowerCase().includes(q);
+      })
+      .sort((a, b) => a.due - b.due);
+    if (!rows.length) return `<div class="dashed">${q ? `Tidak ada yang cocok dengan “${esc(deskQuery)}”.` : 'Tidak ada pinjaman aktif.'}</div>`;
+    const shown = deskAll ? rows : rows.slice(0, DESK_LIMIT);
+    return `<div class="list-box">${shown.map(deskRow).join('')}</div>
+      ${rows.length > DESK_LIMIT ? `<button class="link-muted copies-more" data-action="desk-more">${deskAll ? 'Tampilkan lebih sedikit' : `Tampilkan semua (${rows.length})`}</button>` : ''}`;
+  }
+  function logItem(g) {
+    const b = bookById(g.bookId), p = studentByNisn(g.nisn);
+    const time = new Date(g.at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    const verb = g.t === 'pinjam' ? 'meminjam' : 'mengembalikan';
+    return `<div class="log-item"><span class="log-dot ${g.t}">${ic(g.t === 'pinjam' ? 'arrow' : 'check')}</span>
+      <p><b>${esc(p.name)}</b> ${verb} <b>${esc(b.title)}</b><small>${bookCode(b, g.copy)}${g.fine ? ` · denda ${rupiah(g.fine)}` : ''}</small></p><time>${time}</time></div>`;
   }
   function viewDesk() {
-    const all = deskEntries();
-    const pick = all.filter((e) => e.type === 'pickup'), ret = all.filter((e) => e.type === 'return');
-    const late = ret.filter((e) => e.due < today0()).length;
+    const all = allLoans();
+    const t = today0();
+    const todayLog = state.log.filter((g) => g.at >= t);
+    const late = all.filter((e) => e.due < t).length;
     const avail = BOOKS.reduce((n, b) => n + freeCount(b), 0);
+    const kindCount = (k) => all.filter((e) => (k === 'paket') === isPaket(bookById(e.bookId))).length;
     return `<div class="container desk">
-      <header class="desk-head" data-s><div><h1 class="serif">Meja sirkulasi</h1><p>${fmtLong(Date.now())} · Petugas: Bu Ratna</p></div><div class="desk-tools"><a class="btn btn-ghost" href="#/label">${ic('printer')}Label QR</a><button class="btn btn-black" data-action="scan" data-mode="desk">${ic('scan')}Pindai buku</button></div></header>
+      <header class="desk-head" data-s><div><h1 class="serif">Meja sirkulasi</h1><p>${fmtLong(Date.now())} · Petugas: Bu Ratna</p></div><div class="desk-tools"><a class="btn btn-ghost" href="#/label">${ic('printer')}Label QR</a></div></header>
       <div class="stats" data-s>
-        <div class="stat"><b>${pick.length}</b><span>Siap diambil</span></div>
-        <div class="stat"><b>${ret.length}</b><span>Sedang dipinjam</span></div>
+        <div class="stat"><b>${todayLog.filter((g) => g.t === 'pinjam').length}</b><span>Dipinjam hari ini</span></div>
+        <div class="stat"><b>${todayLog.filter((g) => g.t === 'kembali').length}</b><span>Kembali hari ini</span></div>
         <div class="stat ${late ? 'late' : ''}"><b>${late}</b><span>Terlambat</span></div>
         <div class="stat"><b>${avail}</b><span>Eksemplar di rak</span></div>
       </div>
       <div class="desk-grid">
-        <section data-s><div class="sec-head"><h2 class="serif h-sec">Siap diambil</h2><span class="count">${pick.length}</span></div>
-          ${pick.length ? `<div class="list-box">${pick.map(deskRow).join('')}</div>` : `<div class="dashed">Tidak ada yang menunggu.</div>`}</section>
-        <section data-s><div class="sec-head"><h2 class="serif h-sec">Pengembalian</h2><span class="count">${ret.length}</span></div>
-          ${ret.length ? `<div class="list-box">${ret.map(deskRow).join('')}</div><p class="hold-hint">Tahan tombol “Terima” untuk mengonfirmasi.</p>` : `<div class="dashed">Semua buku sudah kembali.</div>`}</section>
+        <section data-s>
+          <button class="scan-cta" data-action="scan" data-mode="desk">${ic('scan')}<b>Pindai QR buku</b><span>Untuk meminjam atau mengembalikan</span></button>
+          <form class="scan-manual" data-scan-form data-mode="desk" data-outside><input id="desk-code" placeholder="atau ketik kode label, mis. BK-002-01" autocomplete="off" aria-label="Kode label buku" /><button class="btn btn-black btn-sm" type="submit">Cari</button></form>
+          <p class="desk-code-msg" id="desk-code-msg" aria-live="polite"></p>
+          <div class="sec-head mt"><h2 class="serif h-sec">Aktivitas hari ini</h2><span class="count">${todayLog.length}</span></div>
+          ${todayLog.length ? `<div class="list-box log">${todayLog.map(logItem).join('')}</div>` : `<div class="dashed">Belum ada transaksi hari ini.</div>`}
+        </section>
+        <section data-s>
+          <div class="sec-head"><h2 class="serif h-sec">Sedang dipinjam</h2><span class="count">${all.length}</span></div>
+          <div class="desk-filters">
+            <label class="field">${ic('search')}<input id="desk-q" placeholder="Cari nama, NISN, judul, kode…" value="${esc(deskQuery)}" /></label>
+            <div class="seg" role="group" aria-label="Jenis buku">
+              <button class="seg-btn" data-action="desk-kind" data-kind="bacaan" aria-pressed="${deskKind === 'bacaan'}">Bacaan <sup>${kindCount('bacaan')}</sup></button>
+              <button class="seg-btn" data-action="desk-kind" data-kind="paket" aria-pressed="${deskKind === 'paket'}">Buku paket <sup>${kindCount('paket')}</sup></button>
+            </div>
+          </div>
+          <div id="desk-list">${deskListHTML()}</div>
+          <p class="hold-hint">Tahan tombol “Terima” untuk mengonfirmasi tanpa memindai.</p>
+        </section>
       </div>
     </div>`;
   }
@@ -703,7 +710,7 @@
   function scanStep(mode) {
     return `<div class="m-step">
       <h3 class="serif m-title"><em>Pindai</em> label QR buku</h3>
-      <p class="m-body">${mode === 'desk' ? 'Arahkan kamera ke label di sampul belakang buku yang diambil atau dikembalikan.' : 'Arahkan kamera ke label di sampul belakang buku.'}</p>
+      <p class="m-body">${mode === 'desk' ? 'Arahkan kamera ke label di sampul belakang buku yang akan dipinjam atau dikembalikan.' : 'Arahkan kamera ke label di sampul belakang buku.'}</p>
       <div class="scan-box" id="scan-box"><video id="scan-video" playsinline muted></video><span class="scan-frame"></span><span class="scan-line"></span><p class="scan-msg" id="scan-msg">Menyalakan kamera…</p></div>
       <form class="scan-manual" data-scan-form data-mode="${mode}"><input id="scan-input" placeholder="atau ketik kode, mis. BK-001-01" autocomplete="off" aria-label="Kode label buku" /><button class="btn btn-black btn-sm" type="submit">Cari</button></form>
     </div>`;
@@ -764,33 +771,75 @@
     if (navigator.vibrate) navigator.vibrate(30);
     if (mode !== 'desk') { closeModal(); location.hash = `#/buku/${hit.book.id}/${hit.copy}`; return; }
     const b = hit.book, n = hit.copy, h = holderOf(b, n);
-    const person = (p, sub, btn) => `<div class="desk-row"><span class="avatar lg" style="--av:${p.av}">${initials(p.name)}</span>
-      <div class="grow"><p class="who">${esc(p.name)}<span>${esc(p.cls)}</span></p><p class="row-a">${sub}</p></div>${btn}</div>`;
-    let body;
-    if (h) {
-      // Eksemplar ini tercatat keluar → hanya pemegangnya yang bisa mengembalikan
-      const late = h.due < today0();
-      body = `<p class="copy-status out">${ic('book')}Tercatat dipinjam · jatuh tempo ${fmtShort(h.due)}${late ? ' · <b class="late-txt">terlambat</b>' : ''}</p>
-        <div class="list-box">${person(h, 'Mengembalikan eksemplar ini', `<button class="btn btn-black btn-sm" data-action="desk-confirm" data-id="${h.entryId}" data-type="return">Terima</button>`)}</div>`;
-    } else {
-      const picks = deskEntries().filter((e) => e.type === 'pickup' && e.bookId === b.id);
-      const out = copiesOf(b).map((x, i) => (x ? { n: i + 1, h: holderOf(b, i + 1) } : null)).filter(Boolean);
-      const warn = out.length
-        ? `<p class="scan-warn">${ic('info')}<span>Kalau buku ini sedang <b>dikembalikan</b>, cek labelnya — eksemplar ini tercatat di rak. Peminjam judul ini: ${out.slice(0, 3).map((x) => `${esc(x.h.name)} (${bookCode(b, x.n)})`).join(', ')}${out.length > 3 ? ` dan ${out.length - 3} lainnya` : ''}.</span></p>`
-        : '';
-      body = `<p class="copy-status in">${ic('check')}Tercatat di rak</p>
-        ${picks.length
-          ? `<div class="list-box">${picks.map((e) => person(e.me ? ME : STUDENTS[e.student], `Mengambil · ${e.days} hari · ${e.code}`,
-              `<button class="btn btn-green btn-sm" data-action="desk-confirm" data-id="${e.id}" data-type="pickup" data-copy="${n}">Serahkan</button>`)).join('')}</div>`
-          : `<p class="m-body">Tidak ada yang menunggu judul ini.</p>`}
-        ${warn}`;
+    morph(modalBox, modalInner, () => { modalInner.innerHTML = h ? returnStep(b, n, h) : lendStep(b, n); });
+    const input = $('#nisn');
+    if (input) input.focus({ preventScroll: true });
+  }
+
+  const hitHead = (b, n, status) => `<div class="scan-hit">${thumb(b, 'thumb-md')}<div><small>Eksemplar ${n} dari ${b.total}</small><h4 class="serif">${esc(b.title)}</h4><p class="row-a"><b class="copy-code">${bookCode(b, n)}</b></p></div></div>${status}`;
+  const personCard = (p, sub) => `<div class="person"><span class="avatar lg" style="--av:${p.av}">${initials(p.name)}</span><div class="grow"><p class="who">${esc(p.name)}<span>${esc(p.cls)}</span></p><p class="row-a">${sub}</p></div></div>`;
+  const doneActions = `<div class="m-actions"><button class="btn btn-black btn-sm" data-action="scan-again" data-mode="desk">${ic('scan')}Pindai buku berikutnya</button><button class="btn btn-outline btn-sm" data-close>Selesai</button></div>`;
+  const checkSVG = '<svg class="check-draw" viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="20"/><path d="m14 22.5 5.5 5.5L30 17"/></svg>';
+
+  // Eksemplar di rak → petugas mengisi NISN peminjam
+  function lendStep(b, n) {
+    const t = today0(), paket = isPaket(b);
+    const dur = paket
+      ? `<p class="dur-fixed">${ic('calendar')}Buku paket · 1 semester, kembali ${fmtDay(SEM_END)}</p>`
+      : `<div class="seg dur" role="group" aria-label="Lama pinjam">${[7, 14].map((d) => `<button type="button" class="seg-btn" data-action="dur" data-days="${d}" aria-pressed="${d === 14}">${d} hari · ${fmtShort(t + d * DAY)}</button>`).join('')}</div>`;
+    const demo = ROSTER.filter((x) => !x.me).slice(0, 3).concat(ROSTER.filter((x) => !x.active)).concat([studentByNisn(ME.nisn)]);
+    return `<div class="m-step">
+      ${hitHead(b, n, `<p class="copy-status in">${ic('check')}Di rak · siap dipinjam</p>`)}
+      <form class="nisn-form" data-nisn-form data-book="${b.id}" data-copy="${n}" data-days="14" novalidate>
+        <label class="field-label" for="nisn">NISN peminjam</label>
+        <input id="nisn" class="nisn-input" inputmode="numeric" autocomplete="off" placeholder="10 digit" aria-describedby="nisn-result" />
+        <div class="nisn-result" id="nisn-result" aria-live="polite"></div>
+        ${dur}
+        <button class="btn btn-green nisn-submit" type="submit" disabled>Catat peminjaman</button>
+      </form>
+      <p class="demo-nisn">Contoh NISN untuk demo:${demo.map((x) => `<button type="button" class="demo-chip" data-action="demo-nisn" data-nisn="${x.nisn}">${esc(x.name.split(' ')[0])}</button>`).join('')}</p>
+    </div>`;
+  }
+  // Cek NISN: terdaftar, aktif, belum melebihi batas, tidak ada yang terlambat
+  function checkNisn(nisn, b) {
+    if (!/^\d{10}$/.test(nisn)) return { ok: false, html: nisn ? `<p class="nisn-hint">${10 - nisn.length} digit lagi</p>` : '' };
+    const p = studentByNisn(nisn);
+    if (!p) return { ok: false, html: `<p class="nisn-err">${ic('info')}NISN ${nisn} tidak terdaftar di data siswa.</p>` };
+    if (!p.active) return { ok: false, html: `${personCard(p, `<b class="late-txt">Tidak aktif</b> · ${esc(p.note || 'sudah tidak terdaftar')}`)}<p class="nisn-err">${ic('info')}Siswa tidak aktif tidak bisa meminjam.</p>` };
+    const mine = loansOfNisn(nisn);
+    const bacaan = mine.filter((l) => !isPaket(bookById(l.bookId))).length;
+    const late = mine.filter((l) => l.due < today0());
+    const sub = `<span class="ok-txt">Aktif</span> · ${bacaan} dari ${MAX_LOANS} buku bacaan dipinjam`;
+    if (late.length) {
+      const l = late[0], lb = bookById(l.bookId);
+      return { ok: false, html: `${personCard(p, sub)}<p class="nisn-err">${ic('info')}Masih ada buku terlambat: ${esc(lb.title)} (${bookCode(lb, l.copy)}). Kembalikan dulu sebelum meminjam.</p>` };
     }
-    morph(modalBox, modalInner, () => {
-      modalInner.innerHTML = `<div class="m-step">
-        <div class="scan-hit">${thumb(b, 'thumb-md')}<div><small>Eksemplar ${n} dari ${b.total}</small><h4 class="serif">${esc(b.title)}</h4><p class="row-a"><b class="copy-code">${bookCode(b, n)}</b></p></div></div>
-        ${body}
-        <div class="m-actions"><button class="btn btn-outline btn-sm" data-action="scan-again" data-mode="desk">${ic('scan')}Pindai lagi</button></div></div>`;
-    });
+    if (!isPaket(b) && bacaan >= MAX_LOANS) return { ok: false, html: `${personCard(p, sub)}<p class="nisn-err">${ic('info')}Sudah meminjam ${MAX_LOANS} buku bacaan.</p>` };
+    return { ok: true, html: personCard(p, sub) };
+  }
+  function onNisnInput(input) {
+    const form = input.closest('[data-nisn-form]');
+    input.value = input.value.replace(/\D/g, '').slice(0, 10);
+    const res = checkNisn(input.value, bookById(form.dataset.book));
+    const box = $('#nisn-result');
+    const changed = box.dataset.state !== input.value.length + ':' + res.ok + ':' + (input.value.length === 10 ? input.value : '');
+    box.innerHTML = res.html;
+    box.dataset.state = input.value.length + ':' + res.ok + ':' + (input.value.length === 10 ? input.value : '');
+    if (changed && input.value.length === 10) bump(box.firstElementChild);
+    $('.nisn-submit', form).disabled = !res.ok;
+    form.dataset.valid = res.ok ? '1' : '';
+  }
+
+  // Eksemplar sedang dipinjam → pengembalian
+  function returnStep(b, n, h) {
+    const days = lateDays(h.due);
+    return `<div class="m-step">
+      ${hitHead(b, n, `<p class="copy-status out">${ic('book')}Sedang dipinjam</p>`)}
+      ${personCard(h, `NISN ${h.nisn}`)}
+      <dl class="m-detail"><dt>Dipinjam</dt><dd>${fmtDay(h.start)}</dd><dt>Jatuh tempo</dt><dd>${fmtDay(h.due)}</dd>
+        ${days ? `<dt>Terlambat</dt><dd class="late-txt">${days} hari · denda ${rupiah(days * FINE)}</dd>` : '<dt>Status</dt><dd class="ok-txt">Tepat waktu</dd>'}</dl>
+      <div class="m-actions"><button class="btn btn-black btn-sm" data-action="return-go" data-id="${h.entryId}">Terima kembali</button><button class="btn btn-outline btn-sm" data-action="scan-again" data-mode="desk">Pindai lagi</button></div>
+    </div>`;
   }
 
   /* ── Router + transisi halaman ───────────────────────────── */
@@ -812,6 +861,8 @@
     $$('.ring .fg', view).forEach((c) => requestAnimationFrame(() => requestAnimationFrame(() => { c.style.strokeDashoffset = c.dataset.offset; })));
     const q = $('#lib-q', view);
     if (q) q.addEventListener('input', () => { libQuery = q.value; swapLibBody($('#lib-body').dataset.tab, true); });
+    const dq = $('#desk-q', view);
+    if (dq) dq.addEventListener('input', () => { deskQuery = dq.value; deskAll = false; $('#desk-list').innerHTML = deskListHTML(); });
     renderHeaderPops();
     $$('.topnav a').forEach((a) => (a.dataset.nav === current.name ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
   }
@@ -862,15 +913,7 @@
 
   /* ── Aksi ────────────────────────────────────────────────── */
   const actions = {
-    borrow: (el) => openBorrow(el.dataset.id),
-    'borrow-go': (el) => doBorrow(el),
-    queue(el) {
-      const id = el.dataset.id, b = bookById(id);
-      const i = state.queue.indexOf(id);
-      if (i >= 0) { state.queue.splice(i, 1); showBar(barMsg(`Keluar dari antrean <b>${esc(b.title)}</b>.`)); }
-      else { state.queue.push(id); showBar(barBook(b, `Antrean #${state.queue.length + 1}`, false)); }
-      save(); replacePrimary(b);
-    },
+    howto: (el) => openHowTo(el.dataset.id),
     save(el) {
       const b = bookById(el.dataset.id);
       if (!state.saved.includes(b.id)) state.saved.unshift(b.id);
@@ -911,16 +954,6 @@
       bump(row && ($('.due-date', row) || $('.row-due', row)));
       showBar(barBook(bookById(l.bookId), `Kembali ${fmtShort(l.due)}`, false));
     },
-    async cancel(el) {
-      const l = state.loans.find((x) => x.id === el.dataset.id);
-      if (!l) return;
-      closePops();
-      const row = $(`[data-loan="${l.id}"]`);
-      if (row) await collapse(row);
-      state.loans = state.loans.filter((x) => x !== l);
-      save(); rerenderSoft();
-      showBar(barMsg(`Peminjaman <b>${esc(bookById(l.bookId).title)}</b> dibatalkan.`));
-    },
     'hide-rules'() {
       const el = $('#rules');
       collapse(el).then(() => { state.hideRules = true; save(); el.remove(); });
@@ -939,20 +972,40 @@
       box.innerHTML = shelvesHTML();
       enter(box);
     },
-    handover(el) { el.setAttribute('aria-disabled', 'true'); doHandover(el.dataset.id); },
     scan(el) { openScanner(el.dataset.mode || 'student'); },
     'scan-again'(el) {
       const mode = el.dataset.mode || 'student';
       morph(modalBox, modalInner, () => { modalInner.innerHTML = scanStep(mode); });
       startCamera(mode);
     },
-    'desk-confirm'(el) {
-      closeModal();
-      if (current.name !== 'desk') location.hash = '#/petugas';
-      // Tunggu modal tertutup supaya baris yang hilang terlihat beranimasi
-      const { id, type, copy } = el.dataset;
-      setTimeout(() => (type === 'pickup' ? doHandover(id, copy) : doReturn(id)), 180);
+    dur(el) {
+      const form = el.closest('[data-nisn-form]');
+      form.dataset.days = el.dataset.days;
+      $$('.dur .seg-btn', form).forEach((x) => x.setAttribute('aria-pressed', String(x === el)));
     },
+    'demo-nisn'(el) {
+      const input = $('#nisn');
+      input.value = el.dataset.nisn;
+      onNisnInput(input);
+      input.focus({ preventScroll: true });
+    },
+    'return-go'(el) {
+      const r = giveBack(el.dataset.id);
+      morph(modalBox, modalInner, () => {
+        modalInner.innerHTML = `<div class="m-step">${checkSVG}
+          <h3 class="serif m-title">Kembali ke rak</h3>
+          <p class="m-body"><b>${bookCode(r.b, r.n)}</b> dari ${esc(r.p.name)} sudah tercatat kembali.</p>
+          ${r.fine ? `<p class="fine-note">Terlambat ${r.days} hari · denda <b>${rupiah(r.fine)}</b></p>` : ''}
+          ${doneActions}</div>`;
+      });
+      rerenderSoft();
+    },
+    'desk-kind'(el) {
+      deskKind = el.dataset.kind; deskAll = false;
+      $$('[data-action="desk-kind"]', view).forEach((x) => x.setAttribute('aria-pressed', String(x === el)));
+      const list = $('#desk-list'); list.innerHTML = deskListHTML(); enter(list);
+    },
+    'desk-more'() { deskAll = !deskAll; $('#desk-list').innerHTML = deskListHTML(); },
     print() { window.print(); },
     'copies-more'(el) {
       const sec = $('#copies');
@@ -972,48 +1025,49 @@
     'bar-close': hideBar
   };
 
-  // Serahkan: pakai eksemplar yang dipindai, atau eksemplar pertama di rak
-  async function doHandover(id, copy) {
-    const me = id.startsWith('me-');
-    const rec = me ? state.loans.find((x) => 'me-' + x.id === id) : state.desk.find((x) => x.id === id);
-    if (!rec) return;
-    const b = bookById(rec.bookId);
-    const n = copy ? +copy : firstFree(b);
-    if (!n || copiesOf(b)[n - 1]) {
-      rerenderSoft();
-      showBar(barMsg(`Tidak ada eksemplar <b>${esc(b.title)}</b> di rak.`));
-      return;
+  // Catat peminjaman eksemplar n oleh siswa ber-NISN tertentu
+  function lend(b, n, nisn, days) {
+    const p = studentByNisn(nisn), t = today0();
+    const rec = { id: (p.me ? 'L' : 'D') + Date.now(), bookId: b.id, copy: n, start: t, due: isPaket(b) ? SEM_END : t + days * DAY, renewed: false, code: code() };
+    if (p.me) {
+      state.loans.push(rec);
+      state.saved = state.saved.filter((x) => x !== b.id);
+      copiesOf(b)[n - 1] = { t: 'me', id: rec.id };
+    } else {
+      rec.nisn = nisn;
+      state.desk.push(rec);
+      copiesOf(b)[n - 1] = { t: 'desk', id: rec.id };
     }
-    const row = $(`[data-entry="${id}"]`);
-    if (row) await collapse(row);
-    const d = rec.days || 14;
-    if (me) { rec.status = 'dipinjam'; rec.start = today0(); } else rec.type = 'return';
-    rec.due = today0() + d * DAY;
-    rec.copy = n;
-    copiesOf(b)[n - 1] = { t: me ? 'me' : 'desk', id: rec.id };
-    save(); rerenderSoft();
-    showBar(barMsg(`Eksemplar <b>${bookCode(b, n)}</b> diserahkan · kembali ${fmtShort(rec.due)}.`));
+    state.log.unshift({ t: 'pinjam', nisn, bookId: b.id, copy: n, at: Date.now() });
+    save();
+    return { rec, p };
   }
+  // Terima kembali pinjaman (id dari allLoans) → eksemplar kembali ke rak
+  function giveBack(id) {
+    let rec, nisn;
+    if (id.startsWith('me-')) {
+      rec = state.loans.find((x) => 'me-' + x.id === id);
+      state.loans = state.loans.filter((x) => x !== rec);
+      state.history.unshift({ bookId: rec.bookId, start: rec.start, returned: today0() });
+      nisn = ME.nisn;
+    } else {
+      rec = state.desk.find((x) => x.id === id);
+      state.desk = state.desk.filter((x) => x !== rec);
+      nisn = rec.nisn;
+    }
+    const b = bookById(rec.bookId), n = rec.copy, days = lateDays(rec.due), fine = days * FINE;
+    copiesOf(b)[n - 1] = null;
+    state.log.unshift({ t: 'kembali', nisn, bookId: b.id, copy: n, at: Date.now(), fine });
+    save();
+    return { b, n, days, fine, p: studentByNisn(nisn) };
+  }
+  // Tombol "Terima" (tahan) di daftar meja sirkulasi
   async function doReturn(id) {
     const row = $(`[data-entry="${id}"]`);
     if (row) await collapse(row);
-    let b, n;
-    if (id.startsWith('other:')) {
-      const [, bookId, cn] = id.split(':');
-      b = bookById(bookId); n = +cn;
-    } else if (id.startsWith('me-')) {
-      const l = state.loans.find((x) => 'me-' + x.id === id);
-      state.loans = state.loans.filter((x) => x !== l);
-      state.history.unshift({ bookId: l.bookId, start: l.start, returned: today0() });
-      b = bookById(l.bookId); n = l.copy;
-    } else {
-      const e = state.desk.find((x) => x.id === id);
-      state.desk = state.desk.filter((x) => x !== e);
-      b = bookById(e.bookId); n = e.copy;
-    }
-    if (n) copiesOf(b)[n - 1] = null;
-    save(); rerenderSoft();
-    showBar(barMsg(n ? `Eksemplar <b>${bookCode(b, n)}</b> kembali ke rak.` : 'Buku diterima kembali.'));
+    const r = giveBack(id);
+    rerenderSoft();
+    showBar(barMsg(`<b>${bookCode(r.b, r.n)}</b> kembali ke rak${r.fine ? ` · denda ${rupiah(r.fine)}` : ''}.`));
   }
 
   function replacePrimary(b) {
@@ -1073,7 +1127,7 @@
     if (e.key === '/' && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); sInput.focus(); }
     // Jaga fokus tetap di dalam modal
     if (e.key === 'Tab' && modal.classList.contains('is-open')) {
-      const f = $$('button:not([aria-disabled="true"]), a[href]', modal);
+      const f = $$('button:not([aria-disabled="true"]):not([disabled]), a[href], input', modal);
       if (!f.length) return;
       const first = f[0], last = f[f.length - 1];
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
@@ -1082,19 +1136,44 @@
   });
 
   document.addEventListener('submit', (e) => {
+    const nf = e.target.closest('[data-nisn-form]');
+    if (nf) {
+      e.preventDefault();
+      if (!nf.dataset.valid) return;
+      const b = bookById(nf.dataset.book), n = +nf.dataset.copy;
+      const { rec, p } = lend(b, n, $('#nisn', nf).value, +nf.dataset.days);
+      morph(modalBox, modalInner, () => {
+        modalInner.innerHTML = `<div class="m-step">${checkSVG}
+          <h3 class="serif m-title">Peminjaman tercatat</h3>
+          <p class="m-body"><b>${bookCode(b, n)}</b> · ${esc(b.title)}<br>dipinjam ${esc(p.name)} (${esc(p.cls)})</p>
+          <dl class="m-detail"><dt>NISN</dt><dd>${p.nisn}</dd><dt>Kembali paling lambat</dt><dd>${fmtDay(rec.due)}</dd></dl>
+          ${doneActions}</div>`;
+      });
+      rerenderSoft();
+      return;
+    }
     const f = e.target.closest('[data-scan-form]');
     if (!f) return;
     e.preventDefault();
-    const input = $('#scan-input', f);
+    const input = $('input', f);
+    // Form di halaman meja (di luar modal) punya tempat pesan sendiri
+    const msg = f.hasAttribute('data-outside') ? $('#desk-code-msg') : $('#scan-msg');
     if (!parseBookQR(input.value)) {
-      const msg = $('#scan-msg');
       msg.textContent = `Kode “${input.value.trim()}” tidak ditemukan.`;
       msg.classList.add('is-err');
       input.select();
       return;
     }
+    if (f.hasAttribute('data-outside')) {
+      msg.textContent = '';
+      openModal('<div class="m-step"></div>');
+      const v = input.value; input.value = '';
+      handleScan(v, 'desk');
+      return;
+    }
     handleScan(input.value, f.dataset.mode);
   });
+  document.addEventListener('input', (e) => { if (e.target.id === 'nisn') onNisnInput(e.target); });
 
   $('#scan-btn').innerHTML = ic('scan');
   $('.modal-x').innerHTML = ic('x');
