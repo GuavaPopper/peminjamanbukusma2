@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pinjam — Perpustakaan SMA</title>
+  <meta name="description" content="Prototipe website peminjaman buku perpustakaan SMA." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="logo" href="#/" aria-label="Beranda">
+      <span class="logo-mark">P<sup>*</sup></span>
+    </a>
+
+    <div class="search" id="search">
+      <button class="search-icon" id="search-clear" type="button" aria-label="Cari"></button>
+      <input id="search-input" type="search" autocomplete="off" spellcheck="false"
+             placeholder="Cari judul, penulis, atau mata pelajaran…" aria-label="Cari buku"
+             role="combobox" aria-expanded="false" aria-controls="search-pop" />
+      <div class="pop pop-search" id="search-pop" role="listbox"></div>
+    </div>
+
+    <nav class="topnav" aria-label="Utama">
+      <a href="#/" data-nav="home">Beranda</a>
+      <a href="#/jelajah" data-nav="explore">Jelajahi</a>
+      <a href="#/pustaka" data-nav="library">Pustakaku</a>
+      <a href="#/petugas" data-nav="desk">Petugas</a>
+    </nav>
+
+    <div class="topicons">
+      <div class="pop-wrap">
+        <button class="icon-btn has-dot" data-pop="notif-pop" aria-label="Notifikasi" id="bell"></button>
+        <div class="pop pop-right pop-notif" id="notif-pop"></div>
+      </div>
+      <div class="pop-wrap">
+        <button class="icon-btn" data-pop="help-pop" aria-label="Lainnya" id="kebab"></button>
+        <div class="pop pop-right" id="help-pop"></div>
+      </div>
+      <div class="pop-wrap">
+        <button class="avatar-btn" data-pop="me-pop" aria-label="Akun">
+          <span class="avatar" style="--av:#c9a27e">AP</span>
+        </button>
+        <div class="pop pop-right" id="me-pop"></div>
+      </div>
+    </div>
+  </header>
+
+  <main id="view" tabindex="-1"></main>
+
+  <div class="modal" id="modal" aria-hidden="true">
+    <div class="modal-overlay" data-close></div>
+    <button class="modal-x" data-close aria-label="Tutup"></button>
+    <div class="modal-box" role="dialog" aria-modal="true"><div class="modal-inner" id="modal-inner"></div></div>
+  </div>
+
+  <div class="bar" id="bar" role="status" aria-live="polite"></div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
