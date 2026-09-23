@@ -90,13 +90,16 @@
   }
 
   /* ── State (disimpan di localStorage bila tersedia) ──────── */
-  const KEY = 'pinjam-proto-v1';
+  const KEY = 'pinjam-proto-v2';
+  // Peminjam lain (dummy) untuk eksemplar yang sudah keluar sejak awal
+  const OTHERS = [['Bima Saputra', 'XII IPS 2'], ['Citra Lestari', 'X-1'], ['Fajar Nugroho', 'XI MIPA 3'], ['Gita Maharani', 'XII MIPA 1'],
+    ['Hana Prameswari', 'X-4'], ['Ilham Ramadhan', 'XI IPS 1'], ['Kirana Dewi', 'XII IPS 3'], ['Yoga Pratama', 'X-2']];
   function seed() {
     const t = today0();
     return {
       loans: [
-        { id: 'L1', bookId: 'filosofi-teras', start: t - 10 * DAY, due: t + 4 * DAY, status: 'dipinjam', renewed: false, code: 'PJM-3107' },
-        { id: 'L2', bookId: 'bumi-manusia', start: t - 15 * DAY, due: t - 1 * DAY, status: 'dipinjam', renewed: true, code: 'PJM-2984' }
+        { id: 'L1', bookId: 'filosofi-teras', start: t - 10 * DAY, due: t + 4 * DAY, status: 'dipinjam', renewed: false, code: 'PJM-3107', copy: 2 },
+        { id: 'L2', bookId: 'bumi-manusia', start: t - 15 * DAY, due: t - 1 * DAY, status: 'dipinjam', renewed: true, code: 'PJM-2984', copy: 1 }
       ],
       history: [
         { bookId: 'negeri-5-menara', start: t - 60 * DAY, returned: t - 47 * DAY },
@@ -105,7 +108,7 @@
       ],
       saved: ['sapiens', 'kosmos', 'laut-bercerita', 'hujan'],
       queue: [],
-      stock: {},
+      copies: {},
       goal: { target: 12, done: 3 },
       hideRules: false,
       liked: {},
@@ -113,16 +116,57 @@
       desk: [
         { id: 'D1', student: 0, bookId: 'bumi', type: 'pickup', code: 'PJM-5512', days: 14 },
         { id: 'D2', student: 3, bookId: 'fisika-xi', type: 'pickup', code: 'PJM-5530', days: 7 },
-        { id: 'D3', student: 1, bookId: 'hujan', type: 'return', code: 'PJM-4471', due: t + 1 * DAY },
-        { id: 'D4', student: 2, bookId: 'kosmos', type: 'return', code: 'PJM-4388', due: t - 2 * DAY }
+        { id: 'D3', student: 1, bookId: 'hujan', type: 'return', code: 'PJM-4471', due: t + 1 * DAY, copy: 1 },
+        { id: 'D4', student: 2, bookId: 'kosmos', type: 'return', code: 'PJM-4388', due: t - 2 * DAY, copy: 2 }
       ]
     };
   }
+  // Tiap eksemplar: null = di rak, atau catatan pemegangnya
+  function seedCopies(st) {
+    const t = today0();
+    let k = 0;
+    BOOKS.forEach((b) => {
+      const arr = Array(b.total).fill(null);
+      st.loans.forEach((l) => { if (l.bookId === b.id && l.copy) arr[l.copy - 1] = { t: 'me', id: l.id }; });
+      st.desk.forEach((e) => { if (e.bookId === b.id && e.copy) arr[e.copy - 1] = { t: 'desk', id: e.id }; });
+      let out = (b.total - b.stock) - arr.filter(Boolean).length;
+      for (let i = b.total - 1; i >= 0 && out > 0; i--) {
+        if (arr[i]) continue;
+        const [name, cls] = OTHERS[k % OTHERS.length];
+        arr[i] = { t: 'other', name, cls, due: t + (((k * 5) % 17) - 3) * DAY };
+        k++; out--;
+      }
+      st.copies[b.id] = arr;
+    });
+    return st;
+  }
+  const fresh = () => seedCopies(seed());
   let state;
-  try { state = JSON.parse(localStorage.getItem(KEY)) || seed(); } catch { state = seed(); }
+  try { state = JSON.parse(localStorage.getItem(KEY)); } catch { state = null; }
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* mode privat */ } };
+  if (!state) { state = fresh(); save(); }
 
-  const stockOf = (b) => (state.stock[b.id] ?? b.stock);
+  /* ── Eksemplar ───────────────────────────────────────────── */
+  const copiesOf = (b) => state.copies[b.id];
+  const freeCount = (b) => copiesOf(b).filter((h) => !h).length;
+  const pendingCount = (b) => state.loans.filter((l) => l.bookId === b.id && l.status === 'menunggu').length +
+    state.desk.filter((e) => e.bookId === b.id && e.type === 'pickup').length;
+  // Bisa dipinjam = eksemplar di rak dikurangi pesanan yang belum diambil
+  const stockOf = (b) => Math.max(0, freeCount(b) - pendingCount(b));
+  const firstFree = (b) => copiesOf(b).findIndex((h) => !h) + 1;
+  function holderOf(b, n) {
+    const h = copiesOf(b)[n - 1];
+    if (!h) return null;
+    if (h.t === 'me') {
+      const l = state.loans.find((x) => x.id === h.id);
+      return { kind: 'me', name: ME.name, cls: ME.cls, av: ME.av, due: l.due, entryId: 'me-' + l.id };
+    }
+    if (h.t === 'desk') {
+      const e = state.desk.find((x) => x.id === h.id), st = STUDENTS[e.student];
+      return { kind: 'desk', name: st.name, cls: st.cls, av: st.av, due: e.due, entryId: e.id };
+    }
+    return { kind: 'other', name: h.name, cls: h.cls, av: '#b8b2a7', due: h.due, entryId: `other:${b.id}:${n}` };
+  }
   const activeLoans = () => state.loans;
   const loanOf = (id) => state.loans.find((l) => l.bookId === id);
   const MAX_LOANS = 3;
@@ -267,7 +311,6 @@
       const t = today0();
       const loan = { id: 'L' + Date.now(), bookId: b.id, start: t, due: t + days * DAY, status: 'menunggu', renewed: false, code: code(), days };
       state.loans.push(loan);
-      state.stock[b.id] = stockOf(b) - 1;
       state.saved = state.saved.filter((x) => x !== b.id);
       save();
       const digits = loan.code.split('').map((c, i) => `<span style="animation-delay:${420 + i * 45}ms">${c}</span>`).join('');
@@ -466,10 +509,11 @@
       <div class="stats" data-s>
         <div class="stat ${st === 0 ? 'late' : ''}"><b id="stat-stock">${st}</b><span>Tersedia</span></div>
         <div class="stat"><b>${b.total}</b><span>Eksemplar</span></div>
-        <div class="stat"><b>${b.total - st}</b><span>Sedang dipinjam</span></div>
+        <div class="stat"><b>${b.total - freeCount(b)}</b><span>Sedang dipinjam</span></div>
         <div class="stat"><b>${b.borrowedTotal}</b><span>Kali dipinjam</span></div>
         <div class="stat"><b>${b.rating.toFixed(1)}</b><span>${b.reviews} ulasan</span></div>
       </div>
+      ${copiesSection(b, cp, !!copy)}
       <section class="loc" id="loc" data-s>
         <h3 class="serif">Temukan di rak</h3>
         <div class="shelf-badge">${ic('pin')}Rak ${esc(b.shelf)}</div>
@@ -483,6 +527,27 @@
           <a class="btn btn-ghost" href="#/label">${ic('printer')}Cetak label</a></div>
       </section>
     </div></div>`;
+  }
+
+  // Status tiap eksemplar (tanpa nama peminjam — ini tampilan siswa)
+  function copiesSection(b, cp, scanned) {
+    const LIMIT = 8;
+    const rows = copiesOf(b).map((_, i) => {
+      const n = i + 1, h = holderOf(b, n), cur = scanned && n === cp;
+      let pill = '<span class="pill ok">Di rak</span>', note = '';
+      if (h) {
+        const late = h.due < today0();
+        pill = h.kind === 'me' ? '<span class="pill wait">Kamu pinjam</span>' : `<span class="pill ${late ? 'late' : 'done'}">${late ? 'Terlambat' : 'Dipinjam'}</span>`;
+        note = `kembali ${fmtShort(h.due)}`;
+      }
+      return `<div class="copy-row${cur ? ' is-current' : ''}${i >= LIMIT && !cur ? ' is-extra' : ''}"><code>${bookCode(b, n)}</code>${pill}<span class="copy-note">${cur ? 'eksemplar yang kamu pindai' : note}</span></div>`;
+    }).join('');
+    const pend = pendingCount(b);
+    return `<section class="copies${b.total > LIMIT ? '' : ' is-all'}" id="copies" data-s>
+      <div class="copies-head"><h3 class="serif">Eksemplar</h3><span class="count">${freeCount(b)} dari ${b.total} di rak${pend ? ` · ${pend} menunggu diambil` : ''}</span></div>
+      <div class="list-box copy-list">${rows}</div>
+      ${b.total > LIMIT ? `<button class="link-muted copies-more" data-action="copies-more">Lihat semua ${b.total} eksemplar</button>` : ''}
+    </section>`;
   }
 
   /* ── Tampilan: Jelajahi ──────────────────────────────────── */
@@ -524,8 +589,8 @@
       return `<div class="list-box" data-s>${rows.map((l) => {
         const b = bookById(l.bookId), st = loanStatus(l);
         const dateLine = l.status === 'menunggu'
-          ? `${ic('clock')}Ambil sebelum 15.30 hari ini · ${l.days || 14} hari`
-          : `${fmtShort(l.start)} ${ic('arrow')} <span class="due-date">${fmtShort(l.due)}</span>${l.renewed ? ' · sudah diperpanjang' : ''}`;
+          ? `${ic('clock')}Ambil sebelum 15.30 hari ini · ${l.days || 14} hari · eksemplar dipilih petugas`
+          : `${l.copy ? `<b class="copy-code">${bookCode(b, l.copy)}</b> · ` : ''}${fmtShort(l.start)} ${ic('arrow')} <span class="due-date">${fmtShort(l.due)}</span>${l.renewed ? ' · sudah diperpanjang' : ''}`;
         const btn = l.status === 'menunggu'
           ? `<button class="btn btn-ghost" data-action="cancel" data-id="${l.id}">Batalkan</button>`
           : `<button class="btn btn-ghost" data-action="renew" data-id="${l.id}" ${canRenew(l) ? '' : 'disabled'}>Perpanjang</button>`;
@@ -568,14 +633,14 @@
     // Gabungkan antrean siswa lain + pinjaman milik Alya
     const mine = state.loans.map((l) => ({
       id: 'me-' + l.id, loanId: l.id, me: true, bookId: l.bookId, code: l.code,
-      type: l.status === 'menunggu' ? 'pickup' : 'return', due: l.due, days: l.days || 14
+      type: l.status === 'menunggu' ? 'pickup' : 'return', due: l.due, days: l.days || 14, copy: l.copy
     }));
     return [...mine, ...state.desk];
   }
   function deskRow(e) {
     const b = bookById(e.bookId);
     const s = e.me ? { name: ME.name, cls: ME.cls, av: ME.av } : STUDENTS[e.student];
-    let meta = e.type === 'pickup' ? `${e.days} hari · ${e.code}` : `${e.code} · jatuh tempo ${fmtShort(e.due)}`;
+    const meta = e.type === 'pickup' ? `${e.days} hari · ${e.code}` : `<b class="copy-code">${bookCode(b, e.copy)}</b> · jatuh tempo ${fmtShort(e.due)}`;
     const late = e.type === 'return' && e.due < today0();
     const btn = e.type === 'pickup'
       ? `<button class="btn btn-green btn-sm" data-action="handover" data-id="${e.id}">Serahkan</button>`
@@ -588,14 +653,14 @@
     const all = deskEntries();
     const pick = all.filter((e) => e.type === 'pickup'), ret = all.filter((e) => e.type === 'return');
     const late = ret.filter((e) => e.due < today0()).length;
-    const avail = BOOKS.reduce((n, b) => n + stockOf(b), 0);
+    const avail = BOOKS.reduce((n, b) => n + freeCount(b), 0);
     return `<div class="container desk">
       <header class="desk-head" data-s><div><h1 class="serif">Meja sirkulasi</h1><p>${fmtLong(Date.now())} · Petugas: Bu Ratna</p></div><div class="desk-tools"><a class="btn btn-ghost" href="#/label">${ic('printer')}Label QR</a><button class="btn btn-black" data-action="scan" data-mode="desk">${ic('scan')}Pindai buku</button></div></header>
       <div class="stats" data-s>
         <div class="stat"><b>${pick.length}</b><span>Siap diambil</span></div>
         <div class="stat"><b>${ret.length}</b><span>Sedang dipinjam</span></div>
         <div class="stat ${late ? 'late' : ''}"><b>${late}</b><span>Terlambat</span></div>
-        <div class="stat"><b>${avail}</b><span>Eksemplar tersedia</span></div>
+        <div class="stat"><b>${avail}</b><span>Eksemplar di rak</span></div>
       </div>
       <div class="desk-grid">
         <section data-s><div class="sec-head"><h2 class="serif h-sec">Siap diambil</h2><span class="count">${pick.length}</span></div>
@@ -611,7 +676,7 @@
   function labelsHTML() {
     return BOOKS.filter((b) => labelCat === 'Semua' || b.category === labelCat).map((b) =>
       Array.from({ length: b.total }, (_, i) => `<div class="label"><div class="qr">${qrSVG(bookUrl(b, i + 1))}</div>
-        <div class="label-t"><b>${esc(b.title)}</b><span>${esc(b.author)}</span><code>${bookCode(b, i + 1)}</code><em>Rak ${esc(b.shelf)}</em></div></div>`).join('')
+        <div class="label-t"><b>${esc(b.title)}</b><span>${esc(b.author)}</span><code>${bookCode(b, i + 1)}</code><em>Rak ${esc(b.shelf)}${copiesOf(b)[i] ? '<span class="label-out no-print"> · dipinjam</span>' : ''}</em></div></div>`).join('')
     ).join('');
   }
   function viewLabels() {
@@ -698,18 +763,32 @@
     stopScanner();
     if (navigator.vibrate) navigator.vibrate(30);
     if (mode !== 'desk') { closeModal(); location.hash = `#/buku/${hit.book.id}/${hit.copy}`; return; }
-    const b = hit.book;
-    const entries = deskEntries().filter((e) => e.bookId === b.id);
+    const b = hit.book, n = hit.copy, h = holderOf(b, n);
+    const person = (p, sub, btn) => `<div class="desk-row"><span class="avatar lg" style="--av:${p.av}">${initials(p.name)}</span>
+      <div class="grow"><p class="who">${esc(p.name)}<span>${esc(p.cls)}</span></p><p class="row-a">${sub}</p></div>${btn}</div>`;
+    let body;
+    if (h) {
+      // Eksemplar ini tercatat keluar → hanya pemegangnya yang bisa mengembalikan
+      const late = h.due < today0();
+      body = `<p class="copy-status out">${ic('book')}Tercatat dipinjam · jatuh tempo ${fmtShort(h.due)}${late ? ' · <b class="late-txt">terlambat</b>' : ''}</p>
+        <div class="list-box">${person(h, 'Mengembalikan eksemplar ini', `<button class="btn btn-black btn-sm" data-action="desk-confirm" data-id="${h.entryId}" data-type="return">Terima</button>`)}</div>`;
+    } else {
+      const picks = deskEntries().filter((e) => e.type === 'pickup' && e.bookId === b.id);
+      const out = copiesOf(b).map((x, i) => (x ? { n: i + 1, h: holderOf(b, i + 1) } : null)).filter(Boolean);
+      const warn = out.length
+        ? `<p class="scan-warn">${ic('info')}<span>Kalau buku ini sedang <b>dikembalikan</b>, cek labelnya — eksemplar ini tercatat di rak. Peminjam judul ini: ${out.slice(0, 3).map((x) => `${esc(x.h.name)} (${bookCode(b, x.n)})`).join(', ')}${out.length > 3 ? ` dan ${out.length - 3} lainnya` : ''}.</span></p>`
+        : '';
+      body = `<p class="copy-status in">${ic('check')}Tercatat di rak</p>
+        ${picks.length
+          ? `<div class="list-box">${picks.map((e) => person(e.me ? ME : STUDENTS[e.student], `Mengambil · ${e.days} hari · ${e.code}`,
+              `<button class="btn btn-green btn-sm" data-action="desk-confirm" data-id="${e.id}" data-type="pickup" data-copy="${n}">Serahkan</button>`)).join('')}</div>`
+          : `<p class="m-body">Tidak ada yang menunggu judul ini.</p>`}
+        ${warn}`;
+    }
     morph(modalBox, modalInner, () => {
       modalInner.innerHTML = `<div class="m-step">
-        <div class="scan-hit">${thumb(b, 'thumb-md')}<div><small>${bookCode(b, hit.copy)} · eksemplar ${hit.copy}</small><h4 class="serif">${esc(b.title)}</h4><p class="row-a">${esc(b.author)}</p></div></div>
-        ${entries.length ? `<div class="list-box">${entries.map((e) => {
-          const s = e.me ? ME : STUDENTS[e.student], pick = e.type === 'pickup';
-          const late = !pick && e.due < today0();
-          return `<div class="desk-row"><span class="avatar lg" style="--av:${s.av}">${initials(s.name)}</span>
-            <div class="grow"><p class="who">${esc(s.name)}<span>${esc(s.cls)}</span></p><p class="row-a">${pick ? `Mengambil · ${e.days} hari` : `Mengembalikan · jatuh tempo ${fmtShort(e.due)}`}${late ? ' · <b class="late-txt">terlambat</b>' : ''}</p></div>
-            <button class="btn ${pick ? 'btn-green' : 'btn-black'} btn-sm" data-action="desk-confirm" data-id="${e.id}" data-type="${e.type}">${pick ? 'Serahkan' : 'Terima'}</button></div>`;
-        }).join('')}</div>` : `<p class="m-body">Tidak ada yang sedang meminjam atau akan mengambil buku ini.<br>Stok tersedia: ${stockOf(b)} dari ${b.total}.</p>`}
+        <div class="scan-hit">${thumb(b, 'thumb-md')}<div><small>Eksemplar ${n} dari ${b.total}</small><h4 class="serif">${esc(b.title)}</h4><p class="row-a"><b class="copy-code">${bookCode(b, n)}</b></p></div></div>
+        ${body}
         <div class="m-actions"><button class="btn btn-outline btn-sm" data-action="scan-again" data-mode="desk">${ic('scan')}Pindai lagi</button></div></div>`;
     });
   }
@@ -839,7 +918,6 @@
       const row = $(`[data-loan="${l.id}"]`);
       if (row) await collapse(row);
       state.loans = state.loans.filter((x) => x !== l);
-      state.stock[l.bookId] = stockOf(bookById(l.bookId)) + 1;
       save(); rerenderSoft();
       showBar(barMsg(`Peminjaman <b>${esc(bookById(l.bookId).title)}</b> dibatalkan.`));
     },
@@ -872,9 +950,15 @@
       closeModal();
       if (current.name !== 'desk') location.hash = '#/petugas';
       // Tunggu modal tertutup supaya baris yang hilang terlihat beranimasi
-      setTimeout(() => (el.dataset.type === 'pickup' ? doHandover : doReturn)(el.dataset.id), 180);
+      const { id, type, copy } = el.dataset;
+      setTimeout(() => (type === 'pickup' ? doHandover(id, copy) : doReturn(id)), 180);
     },
     print() { window.print(); },
+    'copies-more'(el) {
+      const sec = $('#copies');
+      const open = sec.classList.toggle('is-all');
+      el.textContent = open ? 'Tampilkan lebih sedikit' : `Lihat semua ${sec.querySelectorAll('.copy-row').length} eksemplar`;
+    },
     'label-filter'(el) {
       labelCat = el.dataset.cat;
       $$('.filter', view).forEach((f) => f.setAttribute('aria-pressed', String(f.dataset.cat === labelCat)));
@@ -884,38 +968,52 @@
       enter(grid);
     },
     info(el) { closePops(); showBar(barMsg(el.dataset.msg), 4500); },
-    reset() { state = seed(); save(); closePops(); $('#bell').classList.remove('is-read'); rerenderSoft(); showBar(barMsg('Data demo dikembalikan ke awal.'), 2500); },
+    reset() { state = fresh(); save(); closePops(); $('#bell').classList.remove('is-read'); rerenderSoft(); showBar(barMsg('Data demo dikembalikan ke awal.'), 2500); },
     'bar-close': hideBar
   };
 
-  async function doHandover(id) {
+  // Serahkan: pakai eksemplar yang dipindai, atau eksemplar pertama di rak
+  async function doHandover(id, copy) {
+    const me = id.startsWith('me-');
+    const rec = me ? state.loans.find((x) => 'me-' + x.id === id) : state.desk.find((x) => x.id === id);
+    if (!rec) return;
+    const b = bookById(rec.bookId);
+    const n = copy ? +copy : firstFree(b);
+    if (!n || copiesOf(b)[n - 1]) {
+      rerenderSoft();
+      showBar(barMsg(`Tidak ada eksemplar <b>${esc(b.title)}</b> di rak.`));
+      return;
+    }
     const row = $(`[data-entry="${id}"]`);
     if (row) await collapse(row);
-    if (id.startsWith('me-')) {
-      const l = state.loans.find((x) => 'me-' + x.id === id);
-      const d = l.days || 14; l.status = 'dipinjam'; l.start = today0(); l.due = today0() + d * DAY;
-    } else {
-      const e = state.desk.find((x) => x.id === id);
-      e.type = 'return'; e.due = today0() + e.days * DAY;
-    }
+    const d = rec.days || 14;
+    if (me) { rec.status = 'dipinjam'; rec.start = today0(); } else rec.type = 'return';
+    rec.due = today0() + d * DAY;
+    rec.copy = n;
+    copiesOf(b)[n - 1] = { t: me ? 'me' : 'desk', id: rec.id };
     save(); rerenderSoft();
-    showBar(barMsg('Buku diserahkan. Status berubah menjadi <b>dipinjam</b>.'));
+    showBar(barMsg(`Eksemplar <b>${bookCode(b, n)}</b> diserahkan · kembali ${fmtShort(rec.due)}.`));
   }
   async function doReturn(id) {
     const row = $(`[data-entry="${id}"]`);
     if (row) await collapse(row);
-    if (id.startsWith('me-')) {
+    let b, n;
+    if (id.startsWith('other:')) {
+      const [, bookId, cn] = id.split(':');
+      b = bookById(bookId); n = +cn;
+    } else if (id.startsWith('me-')) {
       const l = state.loans.find((x) => 'me-' + x.id === id);
       state.loans = state.loans.filter((x) => x !== l);
       state.history.unshift({ bookId: l.bookId, start: l.start, returned: today0() });
-      state.stock[l.bookId] = stockOf(bookById(l.bookId)) + 1;
+      b = bookById(l.bookId); n = l.copy;
     } else {
       const e = state.desk.find((x) => x.id === id);
       state.desk = state.desk.filter((x) => x !== e);
-      state.stock[e.bookId] = stockOf(bookById(e.bookId)) + 1;
+      b = bookById(e.bookId); n = e.copy;
     }
+    if (n) copiesOf(b)[n - 1] = null;
     save(); rerenderSoft();
-    showBar(barMsg('Buku diterima kembali dan stok diperbarui.'));
+    showBar(barMsg(n ? `Eksemplar <b>${bookCode(b, n)}</b> kembali ke rak.` : 'Buku diterima kembali.'));
   }
 
   function replacePrimary(b) {
